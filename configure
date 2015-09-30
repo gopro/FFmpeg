@@ -3537,6 +3537,8 @@ xv_outdev_deps="xlib_xv xlib_x11 xlib_xext"
 
 # protocols
 async_protocol_deps="threads"
+android_content_protocol_deps="jni"
+android_content_protocol_select="file_protocol"
 bluray_protocol_deps="libbluray"
 ffrtmpcrypt_protocol_conflict="librtmp_protocol"
 ffrtmpcrypt_protocol_deps_any="gcrypt gmp openssl mbedtls"
