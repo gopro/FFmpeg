@@ -6,6 +6,8 @@ HEADERS = avformat.h                                                    \
           version.h                                                     \
           version_major.h                                               \
 
+HEADERS-$(CONFIG_ANDROID_CONTENT_PROTOCOL) += android_content.h
+
 OBJS = allformats.o         \
        avformat.o           \
        avio.o               \
@@ -642,6 +644,7 @@ OBJS-$(CONFIG_VAPOURSYNTH_DEMUXER)       += vapoursynth.o
 
 # protocols I/O
 OBJS-$(CONFIG_ASYNC_PROTOCOL)            += async.o
+OBJS-$(CONFIG_ANDROID_CONTENT_PROTOCOL)  += android_content.o file.o
 OBJS-$(CONFIG_APPLEHTTP_PROTOCOL)        += hlsproto.o
 OBJS-$(CONFIG_BLURAY_PROTOCOL)           += bluray.o
 OBJS-$(CONFIG_CACHE_PROTOCOL)            += cache.o

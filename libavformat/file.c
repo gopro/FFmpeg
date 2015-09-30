@@ -40,6 +40,12 @@
 #include <stdlib.h>
 #include "os_support.h"
 #include "url.h"
+#if CONFIG_ANDROID_CONTENT_PROTOCOL
+#include <jni.h>
+#include "libavcodec/ffjni.c"
+#include "android_content.h"
+#endif
+
 
 /* Some systems may not have S_ISFIFO */
 #ifndef S_ISFIFO
@@ -99,6 +105,22 @@ typedef struct FileContext {
     DIR *dir;
 #endif
 } FileContext;
+
+
+#if CONFIG_ANDROID_CONTENT_PROTOCOL
+static const AVOption android_content_options[] = {
+    { "truncate", "truncate existing files on write", offsetof(FileContext, trunc), AV_OPT_TYPE_BOOL, { .i64 = 1 }, 0, 1, AV_OPT_FLAG_ENCODING_PARAM },
+    { "blocksize", "set I/O operation maximum block size", offsetof(FileContext, blocksize), AV_OPT_TYPE_INT, { .i64 = INT_MAX }, 1, INT_MAX, AV_OPT_FLAG_ENCODING_PARAM },
+    { NULL }
+};
+
+static const AVClass android_content_class = {
+    .class_name = "android_content",
+    .item_name  = av_default_item_name,
+    .option     = android_content_options,
+    .version    = LIBAVUTIL_VERSION_INT,
+};
+#endif
 
 static const AVOption file_options[] = {
     { "truncate", "truncate existing files on write", offsetof(FileContext, trunc), AV_OPT_TYPE_BOOL, { .i64 = 1 }, 0, 1, AV_OPT_FLAG_ENCODING_PARAM },
