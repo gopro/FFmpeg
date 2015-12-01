@@ -26,6 +26,7 @@
  */
 
 #include "exif.h"
+#include "exif_utils.h"
 
 
 static const char *exif_get_tag_name(uint16_t id)
@@ -142,4 +143,68 @@ int avpriv_exif_decode_ifd(void *logctx, const uint8_t *buf, int size,
     bytestream2_init(&gb, buf, size);
 
     return ff_exif_decode_ifd(logctx, &gb, le, depth, metadata);
+}
+
+int av_exif_parse(const uint8_t *data, int size, AVDictionary **metadata, void *log_ctx)
+{
+    int ret, le, ifd_offset;
+    GetByteContext gbytes;
+
+    bytestream2_init(&gbytes, data, size);
+
+    ret = ff_tdecode_header(&gbytes, &le, &ifd_offset);
+    if (ret < 0) {
+        av_log(log_ctx, AV_LOG_ERROR, "Invalid TIFF header in Exif data\n");
+        return ret;
+    }
+
+    bytestream2_seek(&gbytes, ifd_offset, SEEK_SET);
+
+    // read 0th IFD and store the metadata
+    // (return values > 0 indicate the presence of subimage metadata)
+    ret = ff_exif_decode_ifd(log_ctx, &gbytes, le, 0, metadata);
+    if (ret < 0) {
+        av_log(log_ctx, AV_LOG_ERROR, "Error decoding Exif data\n");
+        return ret;
+    }
+
+    return bytestream2_tell(&gbytes);
+}
+
+int av_exif_parse2(const uint8_t *data, int size, AVDictionary **metadata, AVDictionary **thumb_metadata, void *log_ctx)
+{
+    int ret, le, ifd_offset;
+    GetByteContext gbytes;
+
+    bytestream2_init(&gbytes, data, size);
+
+    ret = ff_tdecode_header(&gbytes, &le, &ifd_offset);
+    if (ret < 0) {
+        av_log(log_ctx, AV_LOG_ERROR, "Invalid TIFF header in Exif data\n");
+        return ret;
+    }
+
+    bytestream2_seek(&gbytes, ifd_offset, SEEK_SET);
+
+    // read 0th IFD and store the metadata
+    // (return values > 0 indicate the presence of subimage metadata)
+    ret = ff_exif_decode_ifd(log_ctx, &gbytes, le, 0, metadata);
+    if (ret < 0) {
+        av_log(log_ctx, AV_LOG_ERROR, "Error decoding Exif data\n");
+        return ret;
+    }
+
+    if (ret > 0) {
+        bytestream2_seek(&gbytes, ret, SEEK_SET);
+
+        // read 1th IFD and store the metadata
+        // (return values > 0 indicate the presence of subimage metadata)
+        ret = ff_exif_decode_ifd(log_ctx, &gbytes, le, 0, thumb_metadata);
+        if (ret < 0) {
+            av_log(log_ctx, AV_LOG_ERROR, "Error decoding Exif data\n");
+            return ret;
+        }
+    }
+
+    return bytestream2_tell(&gbytes);
 }

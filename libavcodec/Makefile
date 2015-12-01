@@ -26,6 +26,8 @@ HEADERS = ac3_parser.h                                                  \
           vorbis_parser.h                                               \
           xvmc.h                                                        \
 
+HEADERS-$(CONFIG_EXIF) = exif_utils.h
+
 OBJS = ac3_parser.o                                                     \
        adts_parser.o                                                    \
        allcodecs.o                                                      \
