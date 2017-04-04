@@ -38,6 +38,10 @@
 #include "libavcodec/internal.h"
 #include "libavcodec/packet_internal.h"
 #include "libavcodec/raw.h"
+#include "libavcodec/h264_parse.h"
+#include "libavcodec/h264_ps.h"
+#include "libavcodec/hevc_parse.h"
+#include "libavcodec/hevc_ps.h"
 
 #include "avformat.h"
 #include "avio_internal.h"
@@ -2385,6 +2389,118 @@ static int add_coded_side_data(AVStream *st, AVCodecContext *avctx)
     return 0;
 }
 
+static int is_mediacodec_decoder(const AVCodec *codec)
+{
+    return codec && strstr(codec->name, "_mediacodec") != NULL;
+}
+
+static int set_codec_parameters_from_extradata(AVCodecContext *avctx)
+{
+    if (!avctx->extradata)
+        return 0;
+
+#if CONFIG_HEVCPARSE
+    if (avctx->codec_id == AV_CODEC_ID_HEVC) {
+        int i;
+
+        HEVCParamSets ps = {0};
+        HEVCSEI sei = {0};
+
+        const HEVCPPS *pps = NULL;
+        const HEVCSPS *sps = NULL;
+        int is_nalff = 0;
+        int nal_length_size = 0;
+
+        int ret = avpriv_hevc_decode_extradata(avctx->extradata, avctx->extradata_size,
+                                               &ps, &sei, &is_nalff, &nal_length_size, 0, 1, avctx);
+        if (ret < 0)
+            return ret;
+
+        for (i = 0; i < HEVC_MAX_PPS_COUNT; i++) {
+            if (ps.pps_list[i]) {
+                pps = (const HEVCPPS*)ps.pps_list[i]->data;
+                break;
+            }
+        }
+
+        if (pps && ps.sps_list[pps->sps_id]) {
+            sps = (const HEVCSPS*)ps.sps_list[pps->sps_id]->data;
+        }
+
+        if (sps) {
+            const HEVCWindow *ow = &sps->output_window;
+
+            avctx->width               = sps->width - ow->left_offset - ow->right_offset;
+            avctx->height              = sps->height - ow->top_offset - ow->bottom_offset;
+            avctx->pix_fmt             = sps->pix_fmt;
+            avctx->sample_aspect_ratio = sps->vui.sar;
+            avctx->profile             = sps->ptl.general_ptl.profile_idc;
+            avctx->level               = sps->ptl.general_ptl.level_idc;
+        }
+
+        avpriv_hevc_ps_uninit(&ps);
+    }
+#endif
+#if CONFIG_H264PARSE
+    if (avctx->codec_id == AV_CODEC_ID_H264) {
+        int i;
+        H264ParamSets ps = {0};
+        const PPS *pps = NULL;
+        const SPS *sps = NULL;
+        int is_avc = 0;
+        int nal_length_size = 0;
+
+        int ret = avpriv_h264_decode_extradata(avctx->extradata, avctx->extradata_size,
+                                               &ps, &is_avc, &nal_length_size, 0, avctx);
+        if (ret < 0)
+            return ret;
+
+        for (i = 0; i < MAX_PPS_COUNT; i++) {
+            if (ps.pps_list[i]) {
+                pps = (const PPS*)ps.pps_list[i]->data;
+                break;
+            }
+        }
+
+        if (pps && ps.sps_list[pps->sps_id]) {
+            sps = (const SPS*)ps.sps_list[pps->sps_id]->data;
+        }
+
+        if (sps) {
+            avctx->width = sps->mb_width * 16 - sps->crop_left - sps->crop_right;
+            avctx->height = sps->mb_height * 16 - sps->crop_top - sps->crop_bottom;
+            switch (sps->bit_depth_luma) {
+            case 9:
+                if (sps->chroma_format_idc == 3)      avctx->pix_fmt = AV_PIX_FMT_YUV444P9;
+                else if (sps->chroma_format_idc == 2) avctx->pix_fmt = AV_PIX_FMT_YUV422P9;
+                else                                  avctx->pix_fmt = AV_PIX_FMT_YUV420P9;
+                break;
+            case 10:
+                if (sps->chroma_format_idc == 3)      avctx->pix_fmt = AV_PIX_FMT_YUV444P10;
+                else if (sps->chroma_format_idc == 2) avctx->pix_fmt = AV_PIX_FMT_YUV422P10;
+                else                                  avctx->pix_fmt = AV_PIX_FMT_YUV420P10;
+                break;
+            case 8:
+                if (sps->chroma_format_idc == 3)      avctx->pix_fmt = AV_PIX_FMT_YUV444P;
+                else if (sps->chroma_format_idc == 2) avctx->pix_fmt = AV_PIX_FMT_YUV422P;
+                else                                  avctx->pix_fmt = AV_PIX_FMT_YUV420P;
+                break;
+            default:
+                avctx->pix_fmt = AV_PIX_FMT_NONE;
+            }
+            avctx->sample_aspect_ratio = sps->sar;
+            avctx->bits_per_raw_sample = sps->bit_depth_luma;
+            avctx->profile             = sps->profile_idc;
+            avctx->level               = sps->level_idc;
+        }
+
+        avpriv_h264_ps_uninit(&ps);
+    }
+#endif
+
+    return 0;
+}
+
 int avformat_find_stream_info(AVFormatContext *ic, AVDictionary **options)
 {
     FFFormatContext *const si = ffformatcontext(ic);
@@ -2479,10 +2595,11 @@ int avformat_find_stream_info(AVFormatContext *ic, AVDictionary **options)
         // Also ensure that subtitle_header is properly set.
         if (!has_codec_parameters(st, NULL) && sti->request_probe <= 0 ||
             st->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE) {
-            if (codec && !avctx->codec)
+            if (codec && !avctx->codec && !is_mediacodec_decoder(codec)) {
                 if (avcodec_open2(avctx, codec, options ? &options[i] : &thread_opt) < 0)
                     av_log(ic, AV_LOG_WARNING,
                            "Failed to open codec in %s\n",__FUNCTION__);
+            }
         }
         if (!options)
             av_dict_free(&thread_opt);
@@ -2491,6 +2608,7 @@ int avformat_find_stream_info(AVFormatContext *ic, AVDictionary **options)
     read_size = 0;
     for (;;) {
         const AVPacket *pkt;
+        const AVCodec *decoder;
         AVStream *st;
         FFStream *sti;
         AVCodecContext *avctx;
@@ -2707,6 +2825,12 @@ int avformat_find_stream_info(AVFormatContext *ic, AVDictionary **options)
                 goto unref_then_goto_end;
         }
 
+        decoder = avctx->codec ? avctx->codec : find_probe_decoder(ic, st, st->codecpar->codec_id);
+
+        if (is_mediacodec_decoder(decoder)) {
+            set_codec_parameters_from_extradata(avctx);
+        }
+
         /* If still no information, we try to open the codec and to
          * decompress the frame. We try to avoid that in most cases as
          * it takes longer and uses more memory. For MPEG-4, we need to
@@ -2716,8 +2840,10 @@ int avformat_find_stream_info(AVFormatContext *ic, AVDictionary **options)
          * least one frame of codec data, this makes sure the codec initializes
          * the channel configuration and does not only trust the values from
          * the container. */
-        try_decode_frame(ic, st, pkt,
-                         (options && i < orig_nb_streams) ? &options[i] : NULL);
+        if (!is_mediacodec_decoder(decoder) || !has_codec_parameters(st, NULL)) {
+            try_decode_frame(ic, st, pkt,
+                             (options && i < orig_nb_streams) ? &options[i] : NULL);
+        }
 
         if (ic->flags & AVFMT_FLAG_NOBUFFER)
             av_packet_unref(pkt1);
