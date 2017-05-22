@@ -155,6 +155,12 @@ static int h264_set_extradata(AVCodecContext *avctx, FFAMediaFormat *format)
         uint8_t *data = NULL;
         int data_size = 0;
 
+        if (avctx->width <= 0)
+            avctx->width = sps->mb_width * 16 - sps->crop_left - sps->crop_right;
+
+        if (avctx->height <= 0)
+            avctx->height = sps->mb_height * 16 - sps->crop_top - sps->crop_bottom;
+
         avctx->profile = ff_h264_get_profile(sps);
         avctx->level = sps->level_idc;
 
@@ -236,8 +242,15 @@ static int hevc_set_extradata(AVCodecContext *avctx, FFAMediaFormat *format)
     }
 
     if (vps && pps && sps) {
+        const HEVCWindow *ow = &sps->output_window;
         uint8_t *data;
         int data_size;
+
+        if (avctx->width <= 0)
+            avctx->width = sps->width - ow->left_offset - ow->right_offset;
+
+        if (avctx->height <= 0)
+            avctx->height = sps->height - ow->top_offset - ow->bottom_offset;
 
         avctx->profile = sps->ptl.general_ptl.profile_idc;
         avctx->level   = sps->ptl.general_ptl.level_idc;
@@ -370,6 +383,12 @@ static av_cold int mediacodec_decode_init(AVCodecContext *avctx)
 #endif
     default:
         av_assert0(0);
+    }
+
+    if (avctx->width <= 0 || avctx->height <= 0) {
+        av_log(avctx, AV_LOG_ERROR, "Invalid codec dimensions %dx%d\n", avctx->width, avctx->height);
+        ret = AVERROR(EINVAL);
+        goto done;
     }
 
     ff_AMediaFormat_setString(format, "mime", codec_mime);
