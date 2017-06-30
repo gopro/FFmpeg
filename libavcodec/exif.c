@@ -25,8 +25,101 @@
  * @author Thilo Borgmann <thilo.borgmann _at_ mail.de>
  */
 
+#include "libavutil/avstring.h"
+
 #include "exif.h"
 #include "exif_utils.h"
+
+
+static int mpf_add_mpentry_metadata(int count, const char *name, const char *sep,
+                                    GetByteContext *gb, int le, AVDictionary **metadata)
+{
+    int i;
+    unsigned value;
+    unsigned flag;
+    const char *strflag;
+    int nb_pictures = count / 16;
+
+    if (!count)
+        return 0;
+
+    for (i = 0; i < nb_pictures; i++) {
+        char buf[64];
+        value = le ? bytestream2_get_le32(gb) : bytestream2_get_be32(gb);
+
+        /* MPDependantParentImageFlag */
+        flag = (value >> 31) & 0x1;
+        snprintf(buf, sizeof(buf), "MPDependantParentImageFlag-%d", i);
+        av_dict_set(metadata, buf, flag ? "1" : "0", 0);
+
+        /* MPDependantParentImageFlag */
+        flag = (value >> 30) & 0x1;
+        snprintf(buf, sizeof(buf), "MPDependantChildImageFlag-%d", i);
+        av_dict_set(metadata, buf, flag ? "1" : "0", 0);
+
+        /* MPRepresentativeImageFlag */
+        flag = (value >> 29) & 0x1;
+        snprintf(buf, sizeof(buf), "MPRepresentativeImageFlag-%d", i);
+        av_dict_set(metadata, buf, flag ? "1" : "0", 0);
+
+        /* MPImageDataFormat */
+        flag = (value >> 24) & 0x7;
+        snprintf(buf, sizeof(buf), "MPImageDataFormat-%d", i);
+        av_dict_set(metadata, buf, flag ? "other" : "jpeg", 0);
+
+        /* MPTypeCode  */
+        flag = value & ((1 << 20) - 1);
+        switch (flag) {
+            case 0x30000:
+                strflag = "primary-image";
+                break;
+            case 0x10001:
+                strflag = "large-thumbnail-vga";
+                break;
+            case 0x10002:
+                strflag = "large-thumbnail-1080p";
+                break;
+            case 0x20001:
+                strflag = "panorama";
+                break;
+            case 0x20002:
+                strflag = "disparity";
+                break;
+            case 0x20003:
+                strflag = "multi-angle";
+                break;
+            case 0x00000:
+                strflag = "undefined";
+                break;
+            default:
+                av_log(0, 0, "%x\n", flag);
+                strflag = "unknown";
+        }
+        snprintf(buf, sizeof(buf), "MPTypeCode-%d", i);
+        av_dict_set(metadata, buf, strflag, 0);
+
+        /* MPIndividualImageSize */
+        value = le ? bytestream2_get_le32(gb) : bytestream2_get_be32(gb);
+        snprintf(buf, sizeof(buf), "MPIndividualImageSize-%d", i);
+        av_dict_set_int(metadata, buf, value, 0);
+
+        /* MPIndividualImageDataOffset */
+        value = le ? bytestream2_get_le32(gb) : bytestream2_get_be32(gb);
+        snprintf(buf, sizeof(buf), "MPIndividualImageDataOffset-%d", i);
+        av_dict_set_int(metadata, buf, value, 0);
+
+        /* MPDependentImage1EntryNumber */
+        value = le ? bytestream2_get_le16(gb) : bytestream2_get_be16(gb);
+        snprintf(buf, sizeof(buf), "MPDependentImage1EntryNumber-%d", i);
+        av_dict_set_int(metadata, buf, value, 0);
+        /* MPDependentImage2EntryNumber */
+        value = le ? bytestream2_get_le16(gb) : bytestream2_get_be16(gb);
+        snprintf(buf, sizeof(buf), "MPDependentImage2EntryNumber-%d", i);
+        av_dict_set_int(metadata, buf, value, 0);
+    }
+
+    return 0;
+}
 
 
 static const char *exif_get_tag_name(uint16_t id)
@@ -47,6 +140,10 @@ static int exif_add_metadata(void *logctx, int count, int type,
                              GetByteContext *gb, int le,
                              AVDictionary **metadata)
 {
+    if (type == TIFF_UNDEFINED && !av_strcasecmp(name, "MPEntry")) {
+        return mpf_add_mpentry_metadata(count, name, sep, gb, le, metadata);
+    }
+
     switch(type) {
     case 0:
         av_log(logctx, AV_LOG_WARNING,

@@ -157,7 +157,12 @@ static const struct exif_tag tag_list[] = { // JEITA CP-3451 EXIF specification:
     {"Saturation",                 0xA409},
     {"Sharpness",                  0xA40A},
     {"DeviceSettingDescription",   0xA40B},
-    {"SubjectDistanceRange",       0xA40C}
+    {"SubjectDistanceRange",       0xA40C},
+    {"MPFormatVersionNumber",      0xB000}, // <- MPF
+    {"MPNumberOfImages",           0xB001},
+    {"MPEntry",                    0xB002},
+    {"MPImageUIDList",             0xB003},
+    {"MPTotalFrames",              0xB004}
 //    {"InteroperabilityIndex",      0x1}, // <- Table 13 Interoperability IFD Attribute Information
 //    {"",                           0x0}
 };

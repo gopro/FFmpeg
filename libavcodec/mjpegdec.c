@@ -2004,8 +2004,7 @@ static int mjpeg_decode_app(MJpegDecodeContext *s)
         goto out;
     }
 
-    /* EXIF metadata */
-    if (s->start_code == APP1 && id == AV_RB32("Exif") && len >= 2) {
+    if (s->start_code == APP1 && id == AV_RB32("Exif") && len >= 2) { /* Exif metadata */
         GetByteContext gbytes;
         int ret, le, ifd_offset, bytes_read;
         const uint8_t *aligned;
@@ -2035,12 +2034,7 @@ static int mjpeg_decode_app(MJpegDecodeContext *s)
         bytes_read = bytestream2_tell(&gbytes);
         skip_bits(&s->gb, bytes_read << 3);
         len -= bytes_read;
-
-        goto out;
-    }
-
-    /* Apple MJPEG-A */
-    if ((s->start_code == APP1) && (len > (0x28 - 8))) {
+    } else if ((s->start_code == APP1) && (len > (0x28 - 8))) { /* Apple MJPEG-A */
         id   = get_bits_long(&s->gb, 32);
         len -= 4;
         /* Apple MJPEG-A */
@@ -2058,6 +2052,33 @@ static int mjpeg_decode_app(MJpegDecodeContext *s)
             if (s->avctx->debug & FF_DEBUG_PICT_INFO)
                 av_log(s->avctx, AV_LOG_INFO, "mjpeg: Apple MJPEG-A header found\n");
         }
+    } else if (s->start_code == APP2 && id == AV_RB32("MPF") && len >= 2) { /* MPF metadata */
+        GetByteContext gbytes;
+        int ret, le, ifd_offset, bytes_read;
+        const uint8_t *aligned;
+
+        // init byte wise reading
+        aligned = align_get_bits(&s->gb);
+        bytestream2_init(&gbytes, aligned, len);
+
+        // read TIFF header
+        ret = ff_tdecode_header(&gbytes, &le, &ifd_offset);
+        if (ret) {
+            av_log(s->avctx, AV_LOG_ERROR, "mjpeg: invalid TIFF header in MPF data\n");
+        } else {
+            bytestream2_seek(&gbytes, ifd_offset, SEEK_SET);
+
+            // read 0th IFD and store the metadata
+            // (return values > 0 indicate the presence of subimage metadata)
+            ret = ff_exif_decode_ifd(s->avctx, &gbytes, le, 0, &s->exif_metadata);
+            if (ret < 0) {
+                av_log(s->avctx, AV_LOG_ERROR, "mjpeg: error decoding MPF data\n");
+            }
+        }
+
+        bytes_read = bytestream2_tell(&gbytes);
+        skip_bits(&s->gb, bytes_read << 3);
+        len -= bytes_read;
     }
 
     if (s->start_code == APP2 && id == AV_RB32("ICC_") && len >= 10) {
