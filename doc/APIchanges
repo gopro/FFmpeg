@@ -135,6 +135,10 @@ API changes, most recent first:
 2022-07-19 - 4397f9a5a0 - lavu 57.30.100 - frame.h
   Add AVFrame.duration, deprecate AVFrame.pkt_duration.
 
+2017-xx-xx - xxxxxxx - lavf 59.14.100 - avformat.h
+  Add avformat_new_side_data(), avformat_get_side_data(),
+  avformat_side_data_name().
+
 -------- 8< --------- FFmpeg 5.1 was cut here -------- 8< ---------
 
 2022-06-12 - 7cae3d8b76 - lavf 59.25.100 - avio.h
