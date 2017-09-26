@@ -603,3 +603,59 @@ int ff_bprint_to_codecpar_extradata(AVCodecParameters *par, struct AVBPrint *buf
     par->extradata_size = buf->len;
     return 0;
 }
+
+AVFormatSideData *avformat_new_side_data(AVFormatContext *fmt,
+                                         enum AVFormatSideDataType type,
+                                         int size)
+{
+    AVFormatSideData *ret, **tmp;
+
+    AVBufferRef *buf = av_buffer_alloc(size);
+    if (!buf)
+        return NULL;
+
+    if (fmt->nb_side_data > INT_MAX / sizeof(*fmt->side_data) - 1)
+        goto fail;
+
+    tmp = av_realloc(fmt->side_data,
+                     (fmt->nb_side_data + 1) * sizeof(*fmt->side_data));
+    if (!tmp)
+        goto fail;
+    fmt->side_data = tmp;
+
+    ret = av_mallocz(sizeof(*ret));
+    if (!ret)
+        goto fail;
+
+    ret->buf = buf;
+    ret->data = ret->buf->data;
+    ret->size = buf->size;
+    ret->type = type;
+
+    fmt->side_data[fmt->nb_side_data++] = ret;
+
+    return ret;
+
+fail:
+    av_buffer_unref(&buf);
+    return NULL;
+}
+
+AVFormatSideData *avformat_get_side_data(const AVFormatContext *fmt,
+                                         enum AVFormatSideDataType type)
+{
+    int i;
+
+    for (i = 0; i < fmt->nb_side_data; i++)
+        if (fmt->side_data[i]->type == type)
+            return fmt->side_data[i];
+    return NULL;
+}
+
+const char *avformat_side_data_name(enum AVFormatSideDataType type)
+{
+    switch(type) {
+    case AVFMT_DATA_USER:                     return "Arbitrary user data";
+    }
+    return NULL;
+}

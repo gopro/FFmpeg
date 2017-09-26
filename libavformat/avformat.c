@@ -134,6 +134,13 @@ void avformat_free_context(AVFormatContext *s)
         av_freep(&s->chapters[s->nb_chapters]);
     }
     av_freep(&s->chapters);
+
+    for (int i = 0; i < s->nb_side_data; i++) {
+        av_buffer_unref(&s->side_data[i]->buf);
+        av_freep(&s->side_data[i]);
+    }
+    av_freep(&s->side_data);
+
     av_dict_free(&s->metadata);
     av_dict_free(&si->id3v2_meta);
     av_packet_free(&si->pkt);
