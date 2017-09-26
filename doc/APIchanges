@@ -2,6 +2,10 @@ The last version increases of all libraries were on 2023-02-09
 
 API changes, most recent first:
 
+2017-xx-xx - xxxxxxx - lavf 59.14.100 - avformat.h
+  Add avformat_new_side_data(), avformat_get_side_data(),
+  avformat_side_data_name().
+
 -------- 8< --------- FFmpeg 6.0 was cut here -------- 8< ---------
 
 2023-02-16 - 927042b409 - lavf 60.2.100 - avformat.h
