@@ -130,6 +130,9 @@ static int h264_set_extradata(AVCodecContext *avctx, FFAMediaFormat *format)
     int is_avc = 0;
     int nal_length_size = 0;
 
+    if (!avctx->extradata)
+        return 0;
+
     memset(&ps, 0, sizeof(ps));
 
     ret = ff_h264_decode_extradata(avctx->extradata, avctx->extradata_size,
