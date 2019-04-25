@@ -429,11 +429,6 @@ char *ff_AMediaCodecList_getCodecNameByType(const char *mime, int profile, int e
             goto done;
         }
 
-        types = (*env)->CallObjectMethod(env, info, jfields.get_supported_types_id);
-        if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
-            goto done;
-        }
-
         is_encoder = (*env)->CallBooleanMethod(env, info, jfields.is_encoder_id);
         if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
             goto done;
@@ -476,6 +471,11 @@ char *ff_AMediaCodecList_getCodecNameByType(const char *mime, int profile, int e
             (strstr(name, "OMX.SEC") && strstr(name, ".sw.")) ||
             !strcmp(name, "OMX.qcom.video.decoder.hevcswvdec")) {
             goto done_with_info;
+        }
+
+        types = (*env)->CallObjectMethod(env, info, jfields.get_supported_types_id);
+        if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
+            goto done;
         }
 
         type_count = (*env)->GetArrayLength(env, types);
