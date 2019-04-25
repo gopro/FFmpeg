@@ -381,6 +381,64 @@ done:
     return ret;
 }
 
+static int is_profile_supported(JNIEnv *env, struct JNIAMediaCodecListFields *jfields, jobject capabilities, int profile, void *log_ctx)
+{
+    int i;
+    int profile_count;
+    int is_supported = 0;
+
+    jobject profile_level = NULL;
+    jobjectArray profile_levels = NULL;
+
+    if (profile < 0)
+        return 1;
+
+    profile_levels = (*env)->GetObjectField(env, capabilities, jfields->profile_levels_id);
+    if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
+        goto done;
+    }
+
+    profile_count = (*env)->GetArrayLength(env, profile_levels);
+    if (!profile_count) {
+        is_supported = 1;
+        goto done;
+    }
+
+    for (i = 0; i < profile_count; i++) {
+        int supported_profile = 0;
+
+        profile_level = (*env)->GetObjectArrayElement(env, profile_levels, i);
+        if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
+            goto done;
+        }
+
+        supported_profile = (*env)->GetIntField(env, profile_level, jfields->profile_id);
+        if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
+            goto done;
+        }
+
+        if (profile == supported_profile)
+            is_supported = 1;
+
+        if (profile_level) {
+            (*env)->DeleteLocalRef(env, profile_level);
+            profile_level = NULL;
+        }
+
+        if (is_supported) {
+            break;
+        }
+    }
+
+done:
+    if (profile_levels) {
+        (*env)->DeleteLocalRef(env, profile_levels);
+        profile_levels = NULL;
+    }
+
+    return is_supported;
+}
+
 char *ff_AMediaCodecList_getCodecNameByType(const char *mime, int profile, int encoder, void *log_ctx)
 {
     int ret;
@@ -401,8 +459,6 @@ char *ff_AMediaCodecList_getCodecNameByType(const char *mime, int profile, int e
     jobjectArray types = NULL;
 
     jobject capabilities = NULL;
-    jobject profile_level = NULL;
-    jobjectArray profile_levels = NULL;
 
     JNI_GET_ENV_OR_RETURN(env, log_ctx, NULL);
 
@@ -480,10 +536,12 @@ char *ff_AMediaCodecList_getCodecNameByType(const char *mime, int profile, int e
 
         type_count = (*env)->GetArrayLength(env, types);
         for (j = 0; j < type_count; j++) {
-            int k;
-            int profile_count;
-
             type = (*env)->GetObjectArrayElement(env, types, j);
+            if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
+                goto done;
+            }
+
+            capabilities = (*env)->CallObjectMethod(env, info, jfields.get_codec_capabilities_id, type);
             if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
                 goto done;
             }
@@ -497,56 +555,12 @@ char *ff_AMediaCodecList_getCodecNameByType(const char *mime, int profile, int e
                 goto done_with_type;
             }
 
-            capabilities = (*env)->CallObjectMethod(env, info, jfields.get_codec_capabilities_id, type);
-            if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
-                goto done;
-            }
-
-            profile_levels = (*env)->GetObjectField(env, capabilities, jfields.profile_levels_id);
-            if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
-                goto done;
-            }
-
-            profile_count = (*env)->GetArrayLength(env, profile_levels);
-            if (!profile_count) {
+            if (is_profile_supported(env, &jfields, capabilities, profile, log_ctx)) {
                 found_codec = 1;
-            }
-            for (k = 0; k < profile_count; k++) {
-                int supported_profile = 0;
-
-                if (profile < 0) {
-                    found_codec = 1;
-                    break;
-                }
-
-                profile_level = (*env)->GetObjectArrayElement(env, profile_levels, k);
-                if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
-                    goto done;
-                }
-
-                supported_profile = (*env)->GetIntField(env, profile_level, jfields.profile_id);
-                if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
-                    goto done;
-                }
-
-                found_codec = profile == supported_profile;
-
-                if (profile_level) {
-                    (*env)->DeleteLocalRef(env, profile_level);
-                    profile_level = NULL;
-                }
-
-                if (found_codec) {
-                    break;
-                }
+                break;
             }
 
 done_with_type:
-            if (profile_levels) {
-                (*env)->DeleteLocalRef(env, profile_levels);
-                profile_levels = NULL;
-            }
-
             if (capabilities) {
                 (*env)->DeleteLocalRef(env, capabilities);
                 capabilities = NULL;
@@ -601,14 +615,6 @@ done:
 
     if (capabilities) {
         (*env)->DeleteLocalRef(env, capabilities);
-    }
-
-    if (profile_level) {
-        (*env)->DeleteLocalRef(env, profile_level);
-    }
-
-    if (profile_levels) {
-        (*env)->DeleteLocalRef(env, profile_levels);
     }
 
     av_freep(&supported_type);
