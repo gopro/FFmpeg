@@ -817,11 +817,11 @@ static char* mediaformat_jni_toString(FFAMediaFormat* ctx)
 
     description = (*env)->CallObjectMethod(env, format->object, format->jfields.to_string_id);
     if (ff_jni_exception_check(env, 1, NULL) < 0) {
-        goto fail;
+        return NULL;
     }
 
     ret = ff_jni_jstring_to_utf_chars(env, description, format);
-fail:
+
     if (description) {
         (*env)->DeleteLocalRef(env, description);
     }
@@ -1431,12 +1431,11 @@ static char *mediacodec_jni_getName(FFAMediaCodec *ctx)
 
     name = (*env)->CallObjectMethod(env, codec->object, codec->jfields.get_name_id);
     if (ff_jni_exception_check(env, 1, codec) < 0) {
-        goto fail;
+        return NULL;
     }
 
     ret = ff_jni_jstring_to_utf_chars(env, name, codec);
 
-fail:
     if (name) {
         (*env)->DeleteLocalRef(env, name);
     }
@@ -1450,7 +1449,6 @@ static int mediacodec_jni_configure(FFAMediaCodec *ctx,
                                     void *crypto,
                                     uint32_t flags)
 {
-    int ret = 0;
     JNIEnv *env = NULL;
     FFAMediaCodecJni *codec = (FFAMediaCodecJni *)ctx;
     const FFAMediaFormatJni *format = (FFAMediaFormatJni *)format_ctx;
@@ -1479,17 +1477,14 @@ static int mediacodec_jni_configure(FFAMediaCodec *ctx,
         (*env)->CallVoidMethod(env, codec->object, codec->jfields.configure_id, format->object, surface, NULL, flags);
     }
     if (ff_jni_exception_check(env, 1, codec) < 0) {
-        ret = AVERROR_EXTERNAL;
-        goto fail;
+        return AVERROR_EXTERNAL;
     }
 
-fail:
-    return ret;
+    return 0;
 }
 
 static int mediacodec_jni_start(FFAMediaCodec* ctx)
 {
-    int ret = 0;
     JNIEnv *env = NULL;
     FFAMediaCodecJni *codec = (FFAMediaCodecJni *)ctx;
 
@@ -1497,17 +1492,14 @@ static int mediacodec_jni_start(FFAMediaCodec* ctx)
 
     (*env)->CallVoidMethod(env, codec->object, codec->jfields.start_id);
     if (ff_jni_exception_check(env, 1, codec) < 0) {
-        ret = AVERROR_EXTERNAL;
-        goto fail;
+        return AVERROR_EXTERNAL;
     }
 
-fail:
-    return ret;
+    return 0;
 }
 
 static int mediacodec_jni_stop(FFAMediaCodec* ctx)
 {
-    int ret = 0;
     JNIEnv *env = NULL;
     FFAMediaCodecJni *codec = (FFAMediaCodecJni *)ctx;
 
@@ -1515,17 +1507,14 @@ static int mediacodec_jni_stop(FFAMediaCodec* ctx)
 
     (*env)->CallVoidMethod(env, codec->object, codec->jfields.stop_id);
     if (ff_jni_exception_check(env, 1, codec) < 0) {
-        ret = AVERROR_EXTERNAL;
-        goto fail;
+        return AVERROR_EXTERNAL;
     }
 
-fail:
-    return ret;
+    return 0;
 }
 
 static int mediacodec_jni_flush(FFAMediaCodec* ctx)
 {
-    int ret = 0;
     JNIEnv *env = NULL;
     FFAMediaCodecJni *codec = (FFAMediaCodecJni *)ctx;
 
@@ -1533,17 +1522,14 @@ static int mediacodec_jni_flush(FFAMediaCodec* ctx)
 
     (*env)->CallVoidMethod(env, codec->object, codec->jfields.flush_id);
     if (ff_jni_exception_check(env, 1, codec) < 0) {
-        ret = AVERROR_EXTERNAL;
-        goto fail;
+        return AVERROR_EXTERNAL;
     }
 
-fail:
-    return ret;
+    return 0;
 }
 
 static int mediacodec_jni_releaseOutputBuffer(FFAMediaCodec* ctx, size_t idx, int render)
 {
-    int ret = 0;
     JNIEnv *env = NULL;
     FFAMediaCodecJni *codec = (FFAMediaCodecJni *)ctx;
 
@@ -1551,17 +1537,14 @@ static int mediacodec_jni_releaseOutputBuffer(FFAMediaCodec* ctx, size_t idx, in
 
     (*env)->CallVoidMethod(env, codec->object, codec->jfields.release_output_buffer_id, (jint)idx, (jboolean)render);
     if (ff_jni_exception_check(env, 1, codec) < 0) {
-        ret = AVERROR_EXTERNAL;
-        goto fail;
+        return AVERROR_EXTERNAL;
     }
 
-fail:
-    return ret;
+    return 0;
 }
 
 static int mediacodec_jni_releaseOutputBufferAtTime(FFAMediaCodec *ctx, size_t idx, int64_t timestampNs)
 {
-    int ret = 0;
     JNIEnv *env = NULL;
     FFAMediaCodecJni *codec = (FFAMediaCodecJni *)ctx;
 
@@ -1569,12 +1552,10 @@ static int mediacodec_jni_releaseOutputBufferAtTime(FFAMediaCodec *ctx, size_t i
 
     (*env)->CallVoidMethod(env, codec->object, codec->jfields.release_output_buffer_at_time_id, (jint)idx, (jlong)timestampNs);
     if (ff_jni_exception_check(env, 1, codec) < 0) {
-        ret = AVERROR_EXTERNAL;
-        goto fail;
+        return AVERROR_EXTERNAL;
     }
 
-fail:
-    return ret;
+    return 0;
 }
 
 static ssize_t mediacodec_jni_dequeueInputBuffer(FFAMediaCodec* ctx, int64_t timeoutUs)
@@ -1587,11 +1568,9 @@ static ssize_t mediacodec_jni_dequeueInputBuffer(FFAMediaCodec* ctx, int64_t tim
 
     ret = (*env)->CallIntMethod(env, codec->object, codec->jfields.dequeue_input_buffer_id, timeoutUs);
     if (ff_jni_exception_check(env, 1, codec) < 0) {
-        ret = AVERROR_EXTERNAL;
-        goto fail;
+        return AVERROR_EXTERNAL;
     }
 
-fail:
     return ret;
 }
 
@@ -1605,11 +1584,9 @@ static int mediacodec_jni_queueInputBuffer(FFAMediaCodec* ctx, size_t idx, off_t
 
     (*env)->CallVoidMethod(env, codec->object, codec->jfields.queue_input_buffer_id, (jint)idx, (jint)offset, (jint)size, time, flags);
     if ((ret = ff_jni_exception_check(env, 1, codec)) < 0) {
-        ret = AVERROR_EXTERNAL;
-        goto fail;
+        return AVERROR_EXTERNAL;
     }
 
-fail:
     return ret;
 }
 
@@ -1822,8 +1799,7 @@ static int mediacodec_jni_cleanOutputBuffers(FFAMediaCodec *ctx)
 
             env = ff_jni_get_env(codec);
             if (!env) {
-                ret = AVERROR_EXTERNAL;
-                goto fail;
+                return AVERROR_EXTERNAL;
             }
 
             (*env)->DeleteGlobalRef(env, codec->output_buffers);
@@ -1831,8 +1807,7 @@ static int mediacodec_jni_cleanOutputBuffers(FFAMediaCodec *ctx)
         }
     }
 
-fail:
-    return ret;
+    return 0;
 }
 
 static int mediacodec_jni_signalEndOfInputStream(FFAMediaCodec *ctx)
