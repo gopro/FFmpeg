@@ -439,6 +439,73 @@ done:
     return is_supported;
 }
 
+static int is_codec_supported(JNIEnv *env, struct JNIAMediaCodecListFields *jfields, jobject info, const char *mime, int profile, void *log_ctx)
+{
+    int i;
+    int ret = 0;
+    jobject type = NULL;
+    jobject types = NULL;
+    int nb_types = 0;
+
+    types = (*env)->CallObjectMethod(env, info, jfields->get_supported_types_id);
+    if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
+        goto done;
+    }
+
+    nb_types = (*env)->GetArrayLength(env, types);
+    for (i = 0; i < nb_types; i++) {
+        int is_supported;
+        const char *supported_type;
+
+        type = (*env)->GetObjectArrayElement(env, types, i);
+        if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
+            goto done;
+        }
+
+        supported_type = ff_jni_jstring_to_utf_chars(env, type, log_ctx);
+        if (!supported_type) {
+            goto done;
+        }
+
+        is_supported = !av_strcasecmp(supported_type, mime);
+        av_freep(&supported_type);
+
+        if (is_supported) {
+            jobject capabilities = (*env)->CallObjectMethod(env, info, jfields->get_codec_capabilities_id, type);
+            if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
+                goto done;
+            }
+
+            ret = is_profile_supported(env, jfields, capabilities, profile, log_ctx);
+
+            if (capabilities) {
+                (*env)->DeleteLocalRef(env, capabilities);
+                capabilities = NULL;
+            }
+
+            if (ret) {
+                goto done;
+            }
+        }
+
+        if (type) {
+            (*env)->DeleteLocalRef(env, type);
+            type = NULL;
+        }
+    }
+
+done:
+    if (types) {
+        (*env)->DeleteLocalRef(env, types);
+    }
+
+    if (type) {
+        (*env)->DeleteLocalRef(env, type);
+    }
+
+    return ret;
+}
+
 static char *get_codec_name(JNIEnv *env, struct JNIAMediaCodecListFields *jfields, jobject info, void *log_ctx)
 {
     char *name = NULL;
@@ -462,19 +529,13 @@ char *ff_AMediaCodecList_getCodecNameByType(const char *mime, int profile, int e
     int ret;
     int i;
     int codec_count;
-    int found_codec = 0;
     char *name = NULL;
-    char *supported_type = NULL;
 
     JNIEnv *env = NULL;
     struct JNIAMediaCodecListFields jfields = { 0 };
     struct JNIAMediaFormatFields mediaformat_jfields = { 0 };
 
     jobject info = NULL;
-    jobject type = NULL;
-    jobjectArray types = NULL;
-
-    jobject capabilities = NULL;
 
     JNI_GET_ENV_OR_RETURN(env, log_ctx, NULL);
 
@@ -492,9 +553,8 @@ char *ff_AMediaCodecList_getCodecNameByType(const char *mime, int profile, int e
     }
 
     for(i = 0; i < codec_count; i++) {
-        int j;
-        int type_count;
         int is_encoder;
+        int is_supported = 0;
 
         info = (*env)->CallStaticObjectMethod(env, jfields.mediacodec_list_class, jfields.get_codec_info_at_id, i);
         if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
@@ -535,53 +595,9 @@ char *ff_AMediaCodecList_getCodecNameByType(const char *mime, int profile, int e
             goto done_with_info;
         }
 
-        types = (*env)->CallObjectMethod(env, info, jfields.get_supported_types_id);
-        if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
-            goto done;
-        }
-
-        type_count = (*env)->GetArrayLength(env, types);
-        for (j = 0; j < type_count; j++) {
-            type = (*env)->GetObjectArrayElement(env, types, j);
-            if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
-                goto done;
-            }
-
-            capabilities = (*env)->CallObjectMethod(env, info, jfields.get_codec_capabilities_id, type);
-            if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
-                goto done;
-            }
-
-            supported_type = ff_jni_jstring_to_utf_chars(env, type, log_ctx);
-            if (!supported_type) {
-                goto done;
-            }
-
-            if (av_strcasecmp(supported_type, mime)) {
-                goto done_with_type;
-            }
-
-            if (is_profile_supported(env, &jfields, capabilities, profile, log_ctx)) {
-                found_codec = 1;
-                break;
-            }
-
-done_with_type:
-            if (capabilities) {
-                (*env)->DeleteLocalRef(env, capabilities);
-                capabilities = NULL;
-            }
-
-            if (type) {
-                (*env)->DeleteLocalRef(env, type);
-                type = NULL;
-            }
-
-            av_freep(&supported_type);
-
-            if (found_codec) {
-                break;
-            }
+        is_supported = is_codec_supported(env, &jfields, info, mime, profile, log_ctx);
+        if (!is_supported) {
+            goto done_with_info;
         }
 
 done_with_info:
@@ -590,12 +606,7 @@ done_with_info:
             info = NULL;
         }
 
-        if (types) {
-            (*env)->DeleteLocalRef(env, types);
-            types = NULL;
-        }
-
-        if (found_codec) {
+        if (is_supported) {
             break;
         }
 
@@ -607,26 +618,8 @@ done:
         (*env)->DeleteLocalRef(env, info);
     }
 
-    if (type) {
-        (*env)->DeleteLocalRef(env, type);
-    }
-
-    if (types) {
-        (*env)->DeleteLocalRef(env, types);
-    }
-
-    if (capabilities) {
-        (*env)->DeleteLocalRef(env, capabilities);
-    }
-
-    av_freep(&supported_type);
-
     ff_jni_reset_jfields(env, &jfields, jni_amediacodeclist_mapping, 0, log_ctx);
     ff_jni_reset_jfields(env, &mediaformat_jfields, jni_amediaformat_mapping, 0, log_ctx);
-
-    if (!found_codec) {
-        av_freep(&name);
-    }
 
     return name;
 }
