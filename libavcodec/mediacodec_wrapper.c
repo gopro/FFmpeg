@@ -420,6 +420,24 @@ done:
     return is_supported;
 }
 
+static char *get_codec_name(JNIEnv *env, struct JNIAMediaCodecListFields *jfields, jobject info, void *log_ctx)
+{
+    char *name = NULL;
+
+    jobject codec_name = (*env)->CallObjectMethod(env, info, jfields->get_name_id);
+    if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
+        return NULL;
+    }
+
+    name = ff_jni_jstring_to_utf_chars(env, codec_name, log_ctx);
+
+    if (codec_name) {
+        (*env)->DeleteLocalRef(env, codec_name);
+    }
+
+    return name;
+}
+
 char *ff_AMediaCodecList_getCodecNameByType(const char *mime, int profile, int encoder, void *log_ctx)
 {
     int ret;
@@ -432,8 +450,6 @@ char *ff_AMediaCodecList_getCodecNameByType(const char *mime, int profile, int e
     JNIEnv *env = NULL;
     struct JNIAMediaCodecListFields jfields = { 0 };
     struct JNIAMediaFormatFields mediaformat_jfields = { 0 };
-
-    jobject codec_name = NULL;
 
     jobject info = NULL;
     jobject type = NULL;
@@ -486,19 +502,9 @@ char *ff_AMediaCodecList_getCodecNameByType(const char *mime, int profile, int e
             }
         }
 
-        codec_name = (*env)->CallObjectMethod(env, info, jfields.get_name_id);
-        if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
-            goto done;
-        }
-
-        name = ff_jni_jstring_to_utf_chars(env, codec_name, log_ctx);
+        name = get_codec_name(env, &jfields, info, log_ctx);
         if (!name) {
             goto done;
-        }
-
-        if (codec_name) {
-            (*env)->DeleteLocalRef(env, codec_name);
-            codec_name = NULL;
         }
 
         /* Skip software decoders */
@@ -578,10 +584,6 @@ done_with_info:
     }
 
 done:
-    if (codec_name) {
-        (*env)->DeleteLocalRef(env, codec_name);
-    }
-
     if (info) {
         (*env)->DeleteLocalRef(env, info);
     }
