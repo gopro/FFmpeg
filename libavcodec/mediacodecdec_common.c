@@ -565,12 +565,53 @@ static int mediacodec_dec_flush_codec(AVCodecContext *avctx, MediaCodecDecContex
     return 0;
 }
 
+static int mediacodec_dec_start(AVCodecContext *avctx, MediaCodecDecContext *s, const char *codec_name, FFAMediaFormat *format)
+{
+    int status;
+    FFAMediaCodec *codec = ff_AMediaCodec_createCodecByName(codec_name);
+    if (!codec) {
+        av_log(avctx, AV_LOG_ERROR, "Failed to create codec %s\n", s->codec_name);
+        goto fail;
+    }
+
+    status = ff_AMediaCodec_configure(codec, format, s->surface, NULL, 0);
+    if (status < 0) {
+        char *desc = ff_AMediaFormat_toString(format);
+        av_log(avctx, AV_LOG_ERROR,
+            "Failed to configure codec (status = %d) with format %s\n",
+            status, desc);
+        av_freep(&desc);
+        goto fail;
+    }
+
+    status = ff_AMediaCodec_start(codec);
+    if (status < 0) {
+        char *desc = ff_AMediaFormat_toString(format);
+        av_log(avctx, AV_LOG_ERROR,
+            "Failed to start codec (status = %d) with format %s\n",
+            status, desc);
+        av_freep(&desc);
+        goto fail;
+    }
+
+    s->codec = codec;
+    s->codec_name = av_strdup(codec_name);
+    return 1;
+
+fail:
+    ff_AMediaCodec_delete(codec);
+    return 0;
+}
+
 int ff_mediacodec_dec_init(AVCodecContext *avctx, MediaCodecDecContext *s,
                            const char *mime, FFAMediaFormat *format)
 {
     int ret = 0;
     int status;
     int profile;
+
+    int nb_names = 0;
+    char **names = NULL;
 
     enum AVPixelFormat pix_fmt;
     static const enum AVPixelFormat pix_fmts[] = {
@@ -650,6 +691,7 @@ int ff_mediacodec_dec_init(AVCodecContext *avctx, MediaCodecDecContext *s,
         ret = AVERROR_EXTERNAL;
         goto fail;
     }
+    av_freep(&names);
 
     status = ff_AMediaCodec_start(s->codec);
     if (status < 0) {
