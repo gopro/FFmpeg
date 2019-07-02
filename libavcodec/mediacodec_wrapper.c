@@ -20,6 +20,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include <stdlib.h>
 #include <jni.h>
 
 #include "libavutil/avassert.h"
@@ -524,7 +525,37 @@ static char *get_codec_name(JNIEnv *env, struct JNIAMediaCodecListFields *jfield
     return name;
 }
 
-char *ff_AMediaCodecList_getCodecNameByType(const char *mime, int profile, int encoder, void *log_ctx)
+#define CODEC_RANK_NONE 0
+#define CODEC_RANK_SW   16
+#define CODEC_RANK_HW   32
+
+static int get_codec_score(const char *name)
+{
+    if (strstr(name, "OMX.ffmpeg"))
+        return CODEC_RANK_SW;
+
+    if (strstr(name, "OMX.google"))
+        return CODEC_RANK_SW + 1;
+
+    if (strstr(name, "OMX.SEC") && strstr(name, ".sw."))
+        return CODEC_RANK_SW + 2;
+
+    if (strstr(name, "OMX.qcom.video.decoder.hevcswvdec"))
+        return CODEC_RANK_SW + 3;
+
+    return CODEC_RANK_HW;
+}
+
+static int codec_compare(const void *a, const void *b)
+{
+    const char *name1 = *(const char **)a;
+    const char *name2 = *(const char **)b;
+    const int score1 = get_codec_score(name1);
+    const int score2 = get_codec_score(name2);
+    return score2 - score1;
+}
+
+int ff_AMediaCodecList_getCodecNamesByType(int *nb_names, char ***names, const char *mime, int profile, int encoder, void *log_ctx)
 {
     int ret;
     int i;
@@ -537,7 +568,7 @@ char *ff_AMediaCodecList_getCodecNameByType(const char *mime, int profile, int e
 
     jobject info = NULL;
 
-    JNI_GET_ENV_OR_RETURN(env, log_ctx, NULL);
+    JNI_GET_ENV_OR_RETURN(env, log_ctx, -1);
 
     if ((ret = ff_jni_init_jfields(env, &jfields, jni_amediacodeclist_mapping, 0, log_ctx)) < 0) {
         goto done;
@@ -570,33 +601,19 @@ char *ff_AMediaCodecList_getCodecNameByType(const char *mime, int profile, int e
             goto done_with_info;
         }
 
-        if (jfields.is_software_only_id) {
-            int is_software_only = (*env)->CallBooleanMethod(env, info, jfields.is_software_only_id);
-            if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
-                goto done;
-            }
-
-            if (is_software_only) {
-                goto done_with_info;
-            }
-        }
-
         name = get_codec_name(env, &jfields, info, log_ctx);
         if (!name) {
             goto done;
         }
 
-        /* Skip software decoders */
-        if (
-            strstr(name, "OMX.google") ||
-            strstr(name, "OMX.ffmpeg") ||
-            (strstr(name, "OMX.SEC") && strstr(name, ".sw.")) ||
-            !strcmp(name, "OMX.qcom.video.decoder.hevcswvdec")) {
+        is_supported = is_codec_supported(env, &jfields, info, mime, profile, log_ctx);
+        if (!is_supported) {
             goto done_with_info;
         }
 
-        is_supported = is_codec_supported(env, &jfields, info, mime, profile, log_ctx);
-        if (!is_supported) {
+        ret = av_dynarray_add_nofree(names, nb_names, name);
+        if (ret < 0) {
+            av_freep(&name);
             goto done_with_info;
         }
 
@@ -605,12 +622,6 @@ done_with_info:
             (*env)->DeleteLocalRef(env, info);
             info = NULL;
         }
-
-        if (is_supported) {
-            break;
-        }
-
-        av_freep(&name);
     }
 
 done:
@@ -621,7 +632,9 @@ done:
     ff_jni_reset_jfields(env, &jfields, jni_amediacodeclist_mapping, 0, log_ctx);
     ff_jni_reset_jfields(env, &mediaformat_jfields, jni_amediaformat_mapping, 0, log_ctx);
 
-    return name;
+    qsort(*names, *nb_names, sizeof(**names), &codec_compare);
+
+    return ret;
 }
 
 FFAMediaFormat *ff_AMediaFormat_new(void)
