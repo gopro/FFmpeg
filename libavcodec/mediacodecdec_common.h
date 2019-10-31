@@ -34,6 +34,11 @@
 #include "avcodec.h"
 #include "mediacodec_wrapper.h"
 
+typedef struct MediaCodecPacketEntry {
+    int64_t pts;
+    int64_t duration;
+} MediaCodecPacketEntry;
+
 typedef struct MediaCodecDecContext {
 
     AVCodecContext *avctx;
@@ -69,6 +74,9 @@ typedef struct MediaCodecDecContext {
 
     bool delay_flush;
     atomic_int serial;
+
+    MediaCodecPacketEntry *pkt_entries;
+    int nb_pkt_entries;
 
 } MediaCodecDecContext;
 

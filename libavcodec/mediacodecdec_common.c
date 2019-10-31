@@ -23,6 +23,7 @@
 #include <string.h>
 #include <sys/types.h>
 
+#include "libavutil/avutil.h"
 #include "libavutil/common.h"
 #include "libavutil/hwcontext_mediacodec.h"
 #include "libavutil/mem.h"
@@ -220,6 +221,36 @@ static enum AVPixelFormat mcdec_map_color_format(AVCodecContext *avctx,
     return ret;
 }
 
+static int mc_add_packet_entry(MediaCodecDecContext *s, int64_t pts, int64_t duration)
+{
+    int i;
+    for (i = 0; i < s->nb_pkt_entries; i++) {
+        if (s->pkt_entries[i].pts == AV_NOPTS_VALUE) {
+            s->pkt_entries[i].pts = pts;
+            s->pkt_entries[i].duration = duration;
+            return i;
+        }
+    }
+    void *ptr = av_realloc_array(s->pkt_entries, sizeof(MediaCodecPacketEntry), s->nb_pkt_entries + 1);
+    if (!ptr)
+        return -1;
+    s->pkt_entries = ptr;
+    s->pkt_entries[s->nb_pkt_entries].pts = pts;
+    s->pkt_entries[s->nb_pkt_entries].duration = duration;
+    s->nb_pkt_entries++;
+    return i;
+}
+
+static int mc_get_packet_entry(MediaCodecDecContext *s, int64_t pts)
+{
+    int i;
+    for (i = 0; i < s->nb_pkt_entries; i++) {
+        if (s->pkt_entries[i].pts == pts)
+            return i;
+    }
+    return -1;
+}
+
 static void ff_mediacodec_dec_ref(MediaCodecDecContext *s)
 {
     atomic_fetch_add(&s->refcount, 1);
@@ -246,6 +277,7 @@ static void ff_mediacodec_dec_unref(MediaCodecDecContext *s)
             s->surface = NULL;
         }
 
+        av_freep(&s->pkt_entries);
         av_freep(&s->codec_name);
         av_freep(&s);
     }
@@ -278,6 +310,7 @@ static int mediacodec_wrap_hw_buffer(AVCodecContext *avctx,
 {
     int ret = 0;
     int status = 0;
+    int packet_index;
     AVMediaCodecBuffer *buffer = NULL;
 
     frame->buf[0] = NULL;
@@ -298,6 +331,14 @@ static int mediacodec_wrap_hw_buffer(AVCodecContext *avctx,
     frame->color_primaries = avctx->color_primaries;
     frame->color_trc = avctx->color_trc;
     frame->colorspace = avctx->colorspace;
+
+    packet_index = mc_get_packet_entry(s, info->presentationTimeUs);
+    if (packet_index >= 0) {
+        MediaCodecPacketEntry *entry = &s->pkt_entries[packet_index];
+        frame->pkt_duration = entry->duration;
+        entry->pts = AV_NOPTS_VALUE;
+        entry->duration = 0;
+    }
 
     buffer = av_mallocz(sizeof(AVMediaCodecBuffer));
     if (!buffer) {
@@ -357,6 +398,7 @@ static int mediacodec_wrap_sw_buffer(AVCodecContext *avctx,
 {
     int ret = 0;
     int status = 0;
+    int packet_index;
 
     frame->width = avctx->width;
     frame->height = avctx->height;
@@ -382,6 +424,14 @@ static int mediacodec_wrap_sw_buffer(AVCodecContext *avctx,
         frame->pts = info->presentationTimeUs;
     }
     frame->pkt_dts = AV_NOPTS_VALUE;
+
+    packet_index = mc_get_packet_entry(s, info->presentationTimeUs);
+    if (packet_index >= 0) {
+        MediaCodecPacketEntry *entry = &s->pkt_entries[packet_index];
+        frame->pkt_duration = entry->duration;
+        entry->pts = AV_NOPTS_VALUE;
+        entry->duration = 0;
+    }
 
     av_log(avctx, AV_LOG_TRACE,
             "Frame: width=%d stride=%d height=%d slice-height=%d "
@@ -543,6 +593,9 @@ static int mediacodec_dec_flush_codec(AVCodecContext *avctx, MediaCodecDecContex
     atomic_init(&s->hw_buffer_count, 0);
     s->current_input_buffer = -1;
 
+    av_freep(&s->pkt_entries);
+    s->nb_pkt_entries = 0;
+
     status = ff_AMediaCodec_flush(codec);
     if (status < 0) {
         av_log(avctx, AV_LOG_ERROR, "Failed to flush codec\n");
@@ -692,6 +745,7 @@ fail:
 int ff_mediacodec_dec_send(AVCodecContext *avctx, MediaCodecDecContext *s,
                            AVPacket *pkt, bool wait)
 {
+    int ret;
     int offset = 0;
     int need_draining = 0;
     uint8_t *data;
@@ -756,6 +810,9 @@ int ff_mediacodec_dec_send(AVCodecContext *avctx, MediaCodecDecContext *s,
                 av_log(avctx, AV_LOG_ERROR, "Failed to queue input empty buffer (status = %d)\n", status);
                 return AVERROR_EXTERNAL;
             }
+            ret = mc_add_packet_entry(s, pts, pkt->duration);
+            if (ret < 0)
+                return ret;
 
             av_log(avctx, AV_LOG_TRACE,
                    "Queued empty EOS input buffer %zd with flags=%d\n", index, flags);
@@ -773,6 +830,9 @@ int ff_mediacodec_dec_send(AVCodecContext *avctx, MediaCodecDecContext *s,
             av_log(avctx, AV_LOG_ERROR, "Failed to queue input buffer (status = %d)\n", status);
             return AVERROR_EXTERNAL;
         }
+        ret = mc_add_packet_entry(s, pts, pkt->duration);
+        if (ret < 0)
+            return ret;
 
         av_log(avctx, AV_LOG_TRACE,
                "Queued input buffer %zd size=%zd ts=%"PRIi64"\n", index, size, pts);
