@@ -787,6 +787,7 @@ static int jpeg_probe(const AVProbeData *p)
                 return 0;
             state = EOI;
             break;
+        case DHT:
         case DQT:
         case APP0:
             if (AV_RL32(&b[i + 4]) == MKTAG('J','F','I','F'))
