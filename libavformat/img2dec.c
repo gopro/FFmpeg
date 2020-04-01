@@ -819,6 +819,7 @@ static int jpeg_probe(const AVProbeData *p)
         case APP13:
         case APP14:
         case APP15:
+        case DHT:
         case DQT: /* fallthrough */
         case COM:
             i += AV_RB16(&b[i + 2]) + 1;
