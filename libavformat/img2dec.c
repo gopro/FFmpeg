@@ -785,9 +785,7 @@ static int jpeg_probe(const AVProbeData *p)
         case EOI:
             if (state != SOS)
                 return 0;
-            state = EOI;
-            break;
-        case DHT:
+            return AVPROBE_SCORE_EXTENSION + 1;
         case DQT:
         case APP0:
             if (AV_RL32(&b[i + 4]) == MKTAG('J','F','I','F'))
@@ -819,8 +817,6 @@ static int jpeg_probe(const AVProbeData *p)
         }
     }
 
-    if (state == EOI)
-        return AVPROBE_SCORE_EXTENSION + 1;
     if (state == SOS)
         return AVPROBE_SCORE_EXTENSION / 2 + got_header;
     return AVPROBE_SCORE_EXTENSION / 8 + 1;
