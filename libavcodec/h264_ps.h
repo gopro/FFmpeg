@@ -168,5 +168,6 @@ int ff_h264_decode_picture_parameter_set(GetBitContext *gb, AVCodecContext *avct
  * Uninit H264 param sets structure.
  */
 void ff_h264_ps_uninit(H264ParamSets *ps);
+void avpriv_h264_ps_uninit(H264ParamSets *ps);
 
 #endif /* AVCODEC_H264_PS_H */

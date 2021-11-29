@@ -330,6 +330,11 @@ void ff_h264_ps_uninit(H264ParamSets *ps)
     ps->sps = NULL;
 }
 
+void avpriv_h264_ps_uninit(H264ParamSets *ps)
+{
+    ff_h264_ps_uninit(ps);
+}
+
 int ff_h264_decode_seq_parameter_set(GetBitContext *gb, AVCodecContext *avctx,
                                      H264ParamSets *ps, int ignore_truncation)
 {

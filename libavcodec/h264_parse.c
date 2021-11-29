@@ -519,6 +519,14 @@ int ff_h264_decode_extradata(const uint8_t *data, int size, H264ParamSets *ps,
     return size;
 }
 
+int avpriv_h264_decode_extradata(const uint8_t *data, int size, H264ParamSets *ps,
+                                 int *is_avc, int *nal_length_size,
+                                 int err_recognition, void *logctx)
+{
+    return ff_h264_decode_extradata(data, size, ps, is_avc, nal_length_size,
+                                    err_recognition, logctx);
+}
+
 /**
  * Compute profile from profile_idc and constraint_set?_flags.
  *

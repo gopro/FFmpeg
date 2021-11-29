@@ -1760,6 +1760,11 @@ void ff_hevc_ps_uninit(HEVCParamSets *ps)
     ps->vps = NULL;
 }
 
+void avpriv_hevc_ps_uninit(HEVCParamSets *ps)
+{
+    ff_hevc_ps_uninit(ps);
+}
+
 int ff_hevc_compute_poc(const HEVCSPS *sps, int pocTid0, int poc_lsb, int nal_unit_type)
 {
     int max_poc_lsb  = 1 << sps->log2_max_poc_lsb;
