@@ -33,4 +33,9 @@ int ff_hevc_decode_extradata(const uint8_t *data, int size, HEVCParamSets *ps,
                              HEVCSEI *sei, int *is_nalff, int *nal_length_size,
                              int err_recognition, int apply_defdispwin, void *logctx);
 
+int avpriv_hevc_decode_extradata(const uint8_t *data, int size, HEVCParamSets *ps,
+                                 HEVCSEI *sei, int *is_nalff, int *nal_length_size,
+                                 int err_recognition, int apply_defdispwin, void *logctx);
+
+
 #endif /* AVCODEC_HEVC_PARSE_H */
