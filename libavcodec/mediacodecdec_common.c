@@ -263,6 +263,7 @@ static void ff_mediacodec_dec_unref(MediaCodecDecContext *s)
 
     if (atomic_fetch_sub(&s->refcount, 1) == 1) {
         if (s->codec) {
+            ff_AMediaCodec_stop(s->codec);
             ff_AMediaCodec_delete(s->codec);
             s->codec = NULL;
         }
