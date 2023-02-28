@@ -1,4 +1,4 @@
-VERSION = 5.1.3
+VERSION = 6.0
 PRINT_INDENT = 16
 
 print_dict: patches
