@@ -33,6 +33,7 @@ OBJS = ac3_parser.o                                                     \
        adts_parser.o                                                    \
        allcodecs.o                                                      \
        avcodec.o                                                        \
+       avcodec_export_shims.o                                           \
        avdct.o                                                          \
        avpacket.o                                                       \
        bitstream.o                                                      \
@@ -1221,6 +1222,9 @@ OBJS-$(HAVE_LIBC_MSVCRT)               += file_open.o
 OBJS-$(HAVE_THREADS)                   += pthread.o pthread_slice.o pthread_frame.o
 
 OBJS-$(CONFIG_FRAME_THREAD_ENCODER)    += frame_thread_encoder.o
+
+# Windows media foundation MFT decoder internal exports
+OBJs-$(CONFIG_MEDIAFOUNDATION)         += avcodec_export_shims.o
 
 # Windows resource file
 SLIBOBJS-$(HAVE_GNU_WINDRES)           += avcodecres.o
