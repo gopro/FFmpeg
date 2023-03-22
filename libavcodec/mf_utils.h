@@ -46,6 +46,7 @@
 // So to avoid DLL loading error, MediaFoundation will be dynamically loaded
 // except on UWP build since LoadLibrary is not available on it.
 typedef struct MFFunctions {
+    HMODULE library;
     HRESULT (WINAPI *MFStartup) (ULONG Version, DWORD dwFlags);
     HRESULT (WINAPI *MFShutdown) (void);
     HRESULT (WINAPI *MFCreateAlignedMemoryBuffer) (DWORD cbMaxLength,
@@ -161,6 +162,7 @@ char *ff_hr_str_buf(char *buf, size_t size, HRESULT hr);
 #define FF_VAL_VT_UI4(v) FF_VARIANT_VALUE(VT_UI4, .ulVal = (v))
 #define FF_VAL_VT_BOOL(v) FF_VARIANT_VALUE(VT_BOOL, .boolVal = (v))
 
+int ff_mf_load_library(AVCodecContext* avctx, MFFunctions* functions);
 IMFSample *ff_create_memory_sample(MFFunctions *f, void *fill_data,
                                    size_t size, size_t align);
 enum AVSampleFormat ff_media_type_to_sample_fmt(IMFAttributes *type);

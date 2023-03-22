@@ -33,7 +33,6 @@
 
 typedef struct MFContext {
     AVClass *av_class;
-    HMODULE library;
     MFFunctions functions;
     AVFrame *frame;
     int is_video, is_audio;
@@ -1130,54 +1129,6 @@ static int mf_init_encoder(AVCodecContext *avctx)
     return 0;
 }
 
-#if !HAVE_UWP
-#define LOAD_MF_FUNCTION(context, func_name) \
-    context->functions.func_name = (void *)dlsym(context->library, #func_name); \
-    if (!context->functions.func_name) { \
-        av_log(context, AV_LOG_ERROR, "DLL mfplat.dll failed to find function "\
-           #func_name "\n"); \
-        return AVERROR_UNKNOWN; \
-    }
-#else
-// In UWP (which lacks LoadLibrary), just link directly against
-// the functions - this requires building with new/complete enough
-// import libraries.
-#define LOAD_MF_FUNCTION(context, func_name) \
-    context->functions.func_name = func_name; \
-    if (!context->functions.func_name) { \
-        av_log(context, AV_LOG_ERROR, "Failed to find function " #func_name \
-               "\n"); \
-        return AVERROR_UNKNOWN; \
-    }
-#endif
-
-// Windows N editions does not provide MediaFoundation by default.
-// So to avoid DLL loading error, MediaFoundation is dynamically loaded except
-// on UWP build since LoadLibrary is not available on it.
-static int mf_load_library(AVCodecContext *avctx)
-{
-    MFContext *c = avctx->priv_data;
-
-#if !HAVE_UWP
-    c->library = dlopen("mfplat.dll", 0);
-
-    if (!c->library) {
-        av_log(c, AV_LOG_ERROR, "DLL mfplat.dll failed to open\n");
-        return AVERROR_UNKNOWN;
-    }
-#endif
-
-    LOAD_MF_FUNCTION(c, MFStartup);
-    LOAD_MF_FUNCTION(c, MFShutdown);
-    LOAD_MF_FUNCTION(c, MFCreateAlignedMemoryBuffer);
-    LOAD_MF_FUNCTION(c, MFCreateSample);
-    LOAD_MF_FUNCTION(c, MFCreateMediaType);
-    // MFTEnumEx is missing in Windows Vista's mfplat.dll.
-    LOAD_MF_FUNCTION(c, MFTEnumEx);
-
-    return 0;
-}
-
 static int mf_close(AVCodecContext *avctx)
 {
     MFContext *c = avctx->priv_data;
@@ -1188,15 +1139,7 @@ static int mf_close(AVCodecContext *avctx)
     if (c->async_events)
         IMFMediaEventGenerator_Release(c->async_events);
 
-#if !HAVE_UWP
-    if (c->library)
-        ff_free_mf(&c->functions, &c->mft);
-
-    dlclose(c->library);
-    c->library = NULL;
-#else
     ff_free_mf(&c->functions, &c->mft);
-#endif
 
     av_frame_free(&c->frame);
 
@@ -1209,9 +1152,10 @@ static int mf_close(AVCodecContext *avctx)
 static int mf_init(AVCodecContext *avctx)
 {
     int ret;
-    if ((ret = mf_load_library(avctx)) == 0) {
-           if ((ret = mf_init_encoder(avctx)) == 0) {
-                return 0;
+    MFContext *c = avctx->priv_data;
+    if ((ret = ff_mf_load_library(avctx, &c->functions)) == 0) {
+        if ((ret = mf_init_encoder(avctx)) == 0) {
+            return 0;
         }
     }
     mf_close(avctx);

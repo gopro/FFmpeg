@@ -42,9 +42,12 @@
 #include "thread.h"
 #include "mf_utils.h"
 
+extern int mf_load_library(AVCodecContext* avctx, MFFunctions* functions);
+static MFFunctions functions = { 0 };
+
 extern IMFSample *av_ff_create_memory_sample(void *fill_data, size_t size, size_t align) 
 {
-    return ff_create_memory_sample(fill_data, size, align);
+    return ff_create_memory_sample(&functions, fill_data, size, align);
 }
 
 int av_ff_set_mf_attributes(IMFAttributes *pattrs, const GUID *attrid, UINT32 inhi, UINT32 inlo) 
@@ -125,10 +128,11 @@ int av_ff_get_buffer(AVCodecContext *avctx, AVFrame *frame, int flags)
 int av_ff_instantiate_mf(void* log, GUID category, MFT_REGISTER_TYPE_INFO* in_type,
     MFT_REGISTER_TYPE_INFO* out_type, int use_hw, IMFTransform** res)
 {
-    return ff_instantiate_mf(log, category, in_type, out_type, use_hw, res);
+    return ff_mf_load_library(log, &functions) 
+        || ff_instantiate_mf(log, &functions, category, in_type, out_type, use_hw, res);
 }
 
 void av_ff_free_mf(IMFTransform** mft)
 {
-    ff_free_mf(mft);
+    ff_free_mf(&functions, mft);
 }

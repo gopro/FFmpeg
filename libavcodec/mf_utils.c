@@ -22,8 +22,12 @@
 #define _WIN32_WINNT 0x0602
 #endif
 
+#pragma comment(lib, "mf.lib")
+#pragma comment(lib, "mfplat.lib")
+
 #include "mf_utils.h"
 #include "libavutil/pixdesc.h"
+#include "compat/w32dlfcn.h"
 
 HRESULT ff_MFGetAttributeSize(IMFAttributes *pattr, REFGUID guid,
                               UINT32 *pw, UINT32 *ph)
@@ -516,6 +520,52 @@ const CLSID *ff_codec_to_mf_subtype(enum AVCodecID codec)
     }
 }
 
+#if !HAVE_UWP
+#define LOAD_MF_FUNCTION(log, functions, func_name) \
+    functions->func_name = (void *)dlsym(functions->library, #func_name); \
+    if (!functions->func_name) { \
+        av_log(log, AV_LOG_ERROR, "DLL mfplat.dll failed to find function "\
+           #func_name "\n"); \
+        return AVERROR_UNKNOWN; \
+    }
+#else
+// In UWP (which lacks LoadLibrary), just link directly against
+// the functions - this requires building with new/complete enough
+// import libraries.
+#define LOAD_MF_FUNCTION(log, functions, func_name) \
+    functions->func_name = func_name; \
+    if (!functions->func_name) { \
+        av_log(log, AV_LOG_ERROR, "Failed to find function " #func_name \
+               "\n"); \
+        return AVERROR_UNKNOWN; \
+    }
+#endif
+
+// Windows N editions does not provide MediaFoundation by default.
+// So to avoid DLL loading error, MediaFoundation is dynamically loaded except
+// on UWP build since LoadLibrary is not available on it.
+int ff_mf_load_library(AVCodecContext* avctx, MFFunctions* functions)
+{
+#if !HAVE_UWP
+    functions->library = dlopen("mfplat.dll", 0);
+
+    if (!functions->library) {
+        av_log(avctx, AV_LOG_ERROR, "DLL mfplat.dll failed to open\n");
+        return AVERROR_UNKNOWN;
+    }
+#endif
+
+    LOAD_MF_FUNCTION(avctx, functions, MFStartup);
+    LOAD_MF_FUNCTION(avctx, functions, MFShutdown);
+    LOAD_MF_FUNCTION(avctx, functions, MFCreateAlignedMemoryBuffer);
+    LOAD_MF_FUNCTION(avctx, functions, MFCreateSample);
+    LOAD_MF_FUNCTION(avctx, functions, MFCreateMediaType);
+    // MFTEnumEx is missing in Windows Vista's mfplat.dll.
+    LOAD_MF_FUNCTION(avctx, functions, MFTEnumEx);
+
+    return 0;
+}
+
 static int init_com_mf(void *log, MFFunctions *f)
 {
     HRESULT hr;
@@ -642,8 +692,20 @@ error_uninit_mf:
 
 void ff_free_mf(MFFunctions *f, IMFTransform **mft)
 {
+#if !HAVE_UWP
+    if (f->library) {
+        if (*mft)
+            IMFTransform_Release(*mft);
+        *mft = NULL;
+        uninit_com_mf(f);
+    
+        dlclose(f->library);
+        f->library = NULL;
+    }
+#else
     if (*mft)
         IMFTransform_Release(*mft);
     *mft = NULL;
     uninit_com_mf(f);
+#endif
 }
