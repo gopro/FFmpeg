@@ -22,12 +22,11 @@
 #define _WIN32_WINNT 0x0602
 #endif
 
-#pragma comment(lib, "mf.lib")
-#pragma comment(lib, "mfplat.lib")
-
 #include "mf_utils.h"
 #include "libavutil/pixdesc.h"
 #include "compat/w32dlfcn.h"
+
+MFFunctions mfapi_funcs = { 0 };
 
 HRESULT ff_MFGetAttributeSize(IMFAttributes *pattr, REFGUID guid,
                               UINT32 *pw, UINT32 *ph)
@@ -77,8 +76,7 @@ char *ff_hr_str_buf(char *buf, size_t size, HRESULT hr)
 // If fill_data!=NULL, initialize the buffer and set the length. (This is a
 // subtle but important difference: some decoders want CurrentLength==0 on
 // provided output buffers.)
-IMFSample *ff_create_memory_sample(MFFunctions *f,void *fill_data, size_t size,
-                                   size_t align)
+IMFSample *ff_create_memory_sample(MFFunctions *f,void *fill_data, size_t size, size_t align)
 {
     HRESULT hr;
     IMFSample *sample;
@@ -90,7 +88,7 @@ IMFSample *ff_create_memory_sample(MFFunctions *f,void *fill_data, size_t size,
 
     align = FFMAX(align, 16); // 16 is "recommended", even if not required
 
-    hr = f->MFCreateAlignedMemoryBuffer(size, align - 1, &buffer);
+    hr = f->MFCreateAlignedMemoryBuffer((DWORD)size, (DWORD)(align-1), &buffer);
     if (FAILED(hr))
         return NULL;
 
@@ -105,7 +103,7 @@ IMFSample *ff_create_memory_sample(MFFunctions *f,void *fill_data, size_t size,
         }
         memcpy(tmp, fill_data, size);
 
-        IMFMediaBuffer_SetCurrentLength(buffer, size);
+        IMFMediaBuffer_SetCurrentLength(buffer, (DWORD)size);
         IMFMediaBuffer_Unlock(buffer);
     }
 
@@ -246,8 +244,8 @@ static struct GUID_Entry guid_names[] = {
     GUID_ENTRY(MFAudioFormat_Float),
     GUID_ENTRY(MFVideoFormat_H264),
     GUID_ENTRY(MFVideoFormat_H264_ES),
-    GUID_ENTRY(ff_MFVideoFormat_HEVC),
-    GUID_ENTRY(ff_MFVideoFormat_HEVC_ES),
+    GUID_ENTRY(MFVideoFormat_HEVC),
+    GUID_ENTRY(MFVideoFormat_HEVC_ES),
     GUID_ENTRY(MFVideoFormat_MPEG2),
     GUID_ENTRY(MFVideoFormat_MP43),
     GUID_ENTRY(MFVideoFormat_MP4V),
@@ -260,10 +258,12 @@ static struct GUID_Entry guid_names[] = {
     GUID_ENTRY(MFAudioFormat_AAC),
     GUID_ENTRY(MFAudioFormat_MP3),
     GUID_ENTRY(MFAudioFormat_MSP1),
+    GUID_ENTRY(ff_MFAudioFormat_MSAUDIO1),
     GUID_ENTRY(MFAudioFormat_WMAudioV8),
     GUID_ENTRY(MFAudioFormat_WMAudioV9),
     GUID_ENTRY(MFAudioFormat_WMAudio_Lossless),
     GUID_ENTRY(MF_MT_ALL_SAMPLES_INDEPENDENT),
+    GUID_ENTRY(MF_MT_AM_FORMAT_TYPE),
     GUID_ENTRY(MF_MT_COMPRESSED),
     GUID_ENTRY(MF_MT_FIXED_SIZE_SAMPLES),
     GUID_ENTRY(MF_MT_SAMPLE_SIZE),
@@ -285,8 +285,10 @@ static struct GUID_Entry guid_names[] = {
     GUID_ENTRY(MF_MT_AUDIO_WMADRC_AVGTARGET),
     GUID_ENTRY(MF_MT_AUDIO_WMADRC_PEAKREF),
     GUID_ENTRY(MF_MT_AUDIO_WMADRC_PEAKTARGET),
+//RFJ    GUID_ENTRY(MF_MT_ORIGINAL_WAVE_FORMAT_TAG),
     GUID_ENTRY(MF_MT_AVG_BIT_ERROR_RATE),
     GUID_ENTRY(MF_MT_AVG_BITRATE),
+//RFJ    GUID_ENTRY(MF_MT_CUSTOM_VIDEO_PRIMARIES),
     GUID_ENTRY(MF_MT_DEFAULT_STRIDE),
     GUID_ENTRY(MF_MT_DRM_FLAGS),
     GUID_ENTRY(MF_MT_FRAME_RATE),
@@ -302,6 +304,7 @@ static struct GUID_Entry guid_names[] = {
     GUID_ENTRY(MF_MT_MPEG2_FLAGS),
     GUID_ENTRY(MF_MT_MPEG2_LEVEL),
     GUID_ENTRY(MF_MT_MPEG2_PROFILE),
+//RFJ    GUID_ENTRY(MF_MT_ORIGINAL_4CC),
     GUID_ENTRY(MF_MT_PAD_CONTROL_FLAGS),
     GUID_ENTRY(MF_MT_PALETTE),
     GUID_ENTRY(MF_MT_PAN_SCAN_APERTURE),
@@ -512,10 +515,28 @@ const CLSID *ff_codec_to_mf_subtype(enum AVCodecID codec)
 {
     switch (codec) {
     case AV_CODEC_ID_H264:              return &MFVideoFormat_H264;
-    case AV_CODEC_ID_HEVC:              return &ff_MFVideoFormat_HEVC;
+    case AV_CODEC_ID_HEVC:              return &MFVideoFormat_HEVC;
+    case AV_CODEC_ID_MJPEG:             return &MFVideoFormat_MJPG;
+    case AV_CODEC_ID_MPEG2VIDEO:        return &MFVideoFormat_MPEG2;
+    case AV_CODEC_ID_MPEG4:             return &MFVideoFormat_MP4V;
+    case AV_CODEC_ID_MSMPEG4V1:
+    case AV_CODEC_ID_MSMPEG4V2:         return &ff_MFVideoFormat_MP42;
+    case AV_CODEC_ID_MSMPEG4V3:         return &MFVideoFormat_MP43;
+    case AV_CODEC_ID_WMV1:              return &MFVideoFormat_WMV1;
+    case AV_CODEC_ID_WMV2:              return &MFVideoFormat_WMV2;
+    case AV_CODEC_ID_WMV3:              return &MFVideoFormat_WMV3;
+    case AV_CODEC_ID_VC1:               return &MFVideoFormat_WVC1;
     case AV_CODEC_ID_AC3:               return &MFAudioFormat_Dolby_AC3;
+    case AV_CODEC_ID_EAC3:              return &MFAudioFormat_Dolby_DDPlus;
     case AV_CODEC_ID_AAC:               return &MFAudioFormat_AAC;
+    case AV_CODEC_ID_MP1:               return &MFAudioFormat_MPEG;
+    case AV_CODEC_ID_MP2:               return &MFAudioFormat_MPEG;
     case AV_CODEC_ID_MP3:               return &MFAudioFormat_MP3;
+    case AV_CODEC_ID_WMAVOICE:          return &MFAudioFormat_MSP1;
+    case AV_CODEC_ID_WMAV1:             return &ff_MFAudioFormat_MSAUDIO1;
+    case AV_CODEC_ID_WMAV2:             return &MFAudioFormat_WMAudioV8;
+    case AV_CODEC_ID_WMAPRO:            return &MFAudioFormat_WMAudioV9;
+    case AV_CODEC_ID_WMALOSSLESS:       return &MFAudioFormat_WMAudio_Lossless;
     default:                            return NULL;
     }
 }
@@ -692,20 +713,63 @@ error_uninit_mf:
 
 void ff_free_mf(MFFunctions *f, IMFTransform **mft)
 {
-#if !HAVE_UWP
-    if (f->library) {
-        if (*mft)
-            IMFTransform_Release(*mft);
-        *mft = NULL;
-        uninit_com_mf(f);
-    
-        dlclose(f->library);
-        f->library = NULL;
-    }
-#else
     if (*mft)
         IMFTransform_Release(*mft);
     *mft = NULL;
     uninit_com_mf(f);
+
+#if !HAVE_UWP
+    if (f->library) {
+        dlclose(f->library);
+        f->library = NULL;
+    }
 #endif
+}
+
+int mf_create(void* log, IMFTransform** mft, const AVCodec* codec, int use_hw)
+{
+    int is_audio = codec->type == AVMEDIA_TYPE_AUDIO;
+    int is_dec = av_codec_is_decoder(codec);
+    const CLSID* subtype = ff_codec_to_mf_subtype(codec->id);
+    MFT_REGISTER_TYPE_INFO reg = { 0 };
+    GUID category;
+    int ret;
+
+    *mft = NULL;
+
+    if (!subtype)
+        return AVERROR(ENOSYS);
+
+    reg.guidSubtype = *subtype;
+
+    ff_mf_load_library(log, &mfapi_funcs);
+
+    if (is_dec) {
+        if (is_audio) {
+            reg.guidMajorType = MFMediaType_Audio;
+            category = MFT_CATEGORY_AUDIO_DECODER;
+        }
+        else {
+            reg.guidMajorType = MFMediaType_Video;
+            category = MFT_CATEGORY_VIDEO_DECODER;
+        }
+
+        if ((ret = ff_instantiate_mf(log, &mfapi_funcs, category, &reg, NULL, use_hw, mft)) < 0)
+            return ret;
+    }
+    else {
+        if (is_audio) {
+            reg.guidMajorType = MFMediaType_Audio;
+            category = MFT_CATEGORY_AUDIO_ENCODER;
+        }
+        else {
+            reg.guidMajorType = MFMediaType_Video;
+            category = MFT_CATEGORY_VIDEO_ENCODER;
+        }
+
+        if ((ret = ff_instantiate_mf(log, &mfapi_funcs, category, NULL, &reg, use_hw, mft)) < 0)
+            return ret;
+    }
+
+    return 0;
 }

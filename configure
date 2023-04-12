@@ -310,7 +310,7 @@ External library support:
   --enable-mbedtls         enable mbedTLS, needed for https support
                            if openssl, gnutls or libtls is not used [no]
   --enable-mediacodec      enable Android MediaCodec support [no]
-  --enable-mediafoundation enable encoding via MediaFoundation [auto]
+  --enable-mediafoundation enable decoding/encoding via MediaFoundation [autodetect]
   --disable-metal          disable Apple Metal framework [autodetect]
   --enable-libmysofa       enable libmysofa, needed for sofalizer filter [no]
   --enable-openal          enable OpenAL 1.1 capture support [no]
@@ -3046,6 +3046,7 @@ h264_vdpau_hwaccel_deps="vdpau"
 h264_vdpau_hwaccel_select="h264_decoder"
 h264_videotoolbox_hwaccel_deps="videotoolbox"
 h264_videotoolbox_hwaccel_select="h264_decoder"
+h264_mediafoundation_hwaccel_deps="mediafoundation"
 hevc_d3d11va_hwaccel_deps="d3d11va DXVA_PicParams_HEVC"
 hevc_d3d11va_hwaccel_select="hevc_decoder"
 hevc_d3d11va2_hwaccel_deps="d3d11va DXVA_PicParams_HEVC"
@@ -3060,10 +3061,12 @@ hevc_vdpau_hwaccel_deps="vdpau VdpPictureInfoHEVC"
 hevc_vdpau_hwaccel_select="hevc_decoder"
 hevc_videotoolbox_hwaccel_deps="videotoolbox"
 hevc_videotoolbox_hwaccel_select="hevc_decoder"
+hevc_mediafoundation_hwaccel_deps="mediafoundation"
 mjpeg_nvdec_hwaccel_deps="nvdec"
 mjpeg_nvdec_hwaccel_select="mjpeg_decoder"
 mjpeg_vaapi_hwaccel_deps="vaapi"
 mjpeg_vaapi_hwaccel_select="mjpeg_decoder"
+mjpeg_mediafoundation_hwaccel_deps="mediafoundation"
 mpeg1_nvdec_hwaccel_deps="nvdec"
 mpeg1_nvdec_hwaccel_select="mpeg1video_decoder"
 mpeg1_vdpau_hwaccel_deps="vdpau"
@@ -3084,6 +3087,7 @@ mpeg2_vdpau_hwaccel_deps="vdpau"
 mpeg2_vdpau_hwaccel_select="mpeg2video_decoder"
 mpeg2_videotoolbox_hwaccel_deps="videotoolbox"
 mpeg2_videotoolbox_hwaccel_select="mpeg2video_decoder"
+mpeg2_mediafoundation_hwaccel_deps="mediafoundation"
 mpeg4_nvdec_hwaccel_deps="nvdec"
 mpeg4_nvdec_hwaccel_select="mpeg4_decoder"
 mpeg4_vaapi_hwaccel_deps="vaapi"
@@ -3092,6 +3096,10 @@ mpeg4_vdpau_hwaccel_deps="vdpau"
 mpeg4_vdpau_hwaccel_select="mpeg4_decoder"
 mpeg4_videotoolbox_hwaccel_deps="videotoolbox"
 mpeg4_videotoolbox_hwaccel_select="mpeg4_decoder"
+mpeg4_mediafoundation_hwaccel_deps="mediafoundation"
+msmpeg4v1_mediafoundation_hwaccel_deps="mediafoundation"
+msmpeg4v2_mediafoundation_hwaccel_deps="mediafoundation"
+msmpeg4v3_mediafoundation_hwaccel_deps="mediafoundation"
 prores_videotoolbox_hwaccel_deps="videotoolbox"
 prores_videotoolbox_hwaccel_select="prores_decoder"
 vc1_d3d11va_hwaccel_deps="d3d11va"
@@ -3106,6 +3114,7 @@ vc1_vaapi_hwaccel_deps="vaapi"
 vc1_vaapi_hwaccel_select="vc1_decoder"
 vc1_vdpau_hwaccel_deps="vdpau"
 vc1_vdpau_hwaccel_select="vc1_decoder"
+vc1_mediafoundation_hwaccel_deps="mediafoundation"
 vp8_nvdec_hwaccel_deps="nvdec"
 vp8_nvdec_hwaccel_select="vp8_decoder"
 vp8_vaapi_hwaccel_deps="vaapi"
@@ -3124,15 +3133,18 @@ vp9_vdpau_hwaccel_deps="vdpau VdpPictureInfoVP9"
 vp9_vdpau_hwaccel_select="vp9_decoder"
 vp9_videotoolbox_hwaccel_deps="videotoolbox"
 vp9_videotoolbox_hwaccel_select="vp9_decoder"
+wmv1_mediafoundation_hwaccel_deps="mediafoundation"
+wmv2_mediafoundation_hwaccel_deps="mediafoundation"
 wmv3_d3d11va_hwaccel_select="vc1_d3d11va_hwaccel"
 wmv3_d3d11va2_hwaccel_select="vc1_d3d11va2_hwaccel"
 wmv3_dxva2_hwaccel_select="vc1_dxva2_hwaccel"
+wmv3_mediafoundation_hwaccel_deps="mediafoundation"
 wmv3_nvdec_hwaccel_select="vc1_nvdec_hwaccel"
 wmv3_vaapi_hwaccel_select="vc1_vaapi_hwaccel"
 wmv3_vdpau_hwaccel_select="vc1_vdpau_hwaccel"
 
 # hardware-accelerated codecs
-mediafoundation_deps="mftransform_h MFCreateAlignedMemoryBuffer"
+mediafoundation_deps="mftransform_h MFCreateAlignedMemoryBuffer mfapi_h MFCreateMediaType"
 omx_deps="libdl pthreads"
 omx_rpi_select="omx"
 qsv_deps="libmfx"
@@ -3395,6 +3407,34 @@ vapoursynth_demuxer_deps="vapoursynth"
 videotoolbox_suggest="coreservices"
 videotoolbox_deps="corefoundation coremedia corevideo"
 videotoolbox_encoder_deps="videotoolbox VTCompressionSessionPrepareToEncodeFrames"
+aac_mediafoundation_decoder_deps="mediafoundation"
+aac_mediafoundation_encoder_deps="mediafoundation"
+ac3_mediafoundation_decoder_deps="mediafoundation"
+ac3_mediafoundation_encoder_deps="mediafoundation"
+eac3_mediafoundation_decoder_deps="mediafoundation"
+h264_mediafoundation_decoder_deps="mediafoundation"
+h264_mediafoundation_encoder_deps="mediafoundation"
+hevc_mediafoundation_decoder_deps="mediafoundation"
+hevc_mediafoundation_encoder_deps="mediafoundation"
+mjpeg_mediafoundation_decoder_deps="mediafoundation"
+mp1_mediafoundation_decoder_deps="mediafoundation"
+mp2_mediafoundation_decoder_deps="mediafoundation"
+mp3_mediafoundation_decoder_deps="mediafoundation"
+mp3_mediafoundation_encoder_deps="mediafoundation"
+mpeg2_mediafoundation_decoder_deps="mediafoundation"
+mpeg4_mediafoundation_decoder_deps="mediafoundation"
+msmpeg4v1_mediafoundation_decoder_deps="mediafoundation"
+msmpeg4v2_mediafoundation_decoder_deps="mediafoundation"
+msmpeg4v3_mediafoundation_decoder_deps="mediafoundation"
+vc1_mediafoundation_decoder_deps="mediafoundation"
+wmav1_mediafoundation_decoder_deps="mediafoundation"
+wmav2_mediafoundation_decoder_deps="mediafoundation"
+wmalossless_mediafoundation_decoder_deps="mediafoundation"
+wmapro_mediafoundation_decoder_deps="mediafoundation"
+wmavoice_mediafoundation_decoder_deps="mediafoundation"
+wmv1_mediafoundation_decoder_deps="mediafoundation"
+wmv2_mediafoundation_decoder_deps="mediafoundation"
+wmv3_mediafoundation_decoder_deps="mediafoundation"
 
 # demuxers / muxers
 ac3_demuxer_select="ac3_parser"
@@ -5615,6 +5655,10 @@ case $target_os in
             # Cannot build both shared and static libs with MSVC or icl.
             disable static
         fi
+        if enabled mediafoundation; then
+            echo "Add extra MF libs"
+            add_extralibs -lmfplat -loleaut32
+        fi
         enabled x86_32 && check_ldflags -LARGEADDRESSAWARE
         shlibdir_default="$bindir_default"
         SLIBPREF=""
@@ -6311,6 +6355,7 @@ check_headers linux/perf_event.h
 check_headers libcrystalhd/libcrystalhd_if.h
 check_headers malloc.h
 check_headers mftransform.h
+check_headers mfapi.h
 check_headers net/udplite.h
 check_headers poll.h
 check_headers sys/param.h
@@ -6396,7 +6441,7 @@ check_type "windows.h dxva.h" "DXVA_PicParams_VP9" -DWINAPI_FAMILY=WINAPI_FAMILY
 check_type "windows.h d3d11.h" "ID3D11VideoDecoder"
 check_type "windows.h d3d11.h" "ID3D11VideoContext"
 check_type "d3d9.h dxva2api.h" DXVA2_ConfigPictureDecode -D_WIN32_WINNT=0x0602
-check_func_headers mfapi.h MFCreateAlignedMemoryBuffer -lmfplat
+check_func_headers mfapi.h "MFCreateAlignedMemoryBuffer MFCreateMediaType" -lmfplat
 
 check_type "vdpau/vdpau.h" "VdpPictureInfoHEVC"
 check_type "vdpau/vdpau.h" "VdpPictureInfoVP9"

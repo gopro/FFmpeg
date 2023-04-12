@@ -28,32 +28,32 @@
 #include "libavutil/opt.h"
 #include "libavutil/time.h"
 #include "codec_internal.h"
-#include "internal.h"
+#include "libavutil/internal.h"
 #include "compat/w32dlfcn.h"
 
-typedef struct MFContext {
-    AVClass *av_class;
-    MFFunctions functions;
-    AVFrame *frame;
-    int is_video, is_audio;
-    GUID main_subtype;
-    IMFTransform *mft;
-    IMFMediaEventGenerator *async_events;
-    DWORD in_stream_id, out_stream_id;
-    MFT_INPUT_STREAM_INFO in_info;
-    MFT_OUTPUT_STREAM_INFO out_info;
-    int out_stream_provides_samples;
-    int draining, draining_done;
-    int sample_sent;
-    int async_need_input, async_have_output, async_marker;
-    int64_t reorder_delay;
-    ICodecAPI *codec_api;
-    // set by AVOption
-    int opt_enc_rc;
-    int opt_enc_quality;
-    int opt_enc_scenario;
-    int opt_enc_hw;
-} MFContext;
+//typedef struct MFContext {
+//    AVClass *av_class;
+//    MFFunctions functions;
+//    AVFrame *frame;
+//    int is_video, is_audio;
+//    GUID main_subtype;
+//    IMFTransform *mft;
+//    IMFMediaEventGenerator *async_events;
+//    DWORD in_stream_id, out_stream_id;
+//    MFT_INPUT_STREAM_INFO in_info;
+//    MFT_OUTPUT_STREAM_INFO out_info;
+//    int out_stream_provides_samples;
+//    int draining, draining_done;
+//    int sample_sent;
+//    int async_need_input, async_have_output, async_marker;
+//    int64_t reorder_delay;
+//    ICodecAPI *codec_api;
+//    // set by AVOption
+//    int opt_enc_rc;
+//    int opt_enc_quality;
+//    int opt_enc_scenario;
+//    int opt_enc_hw;
+//} MFContext;
 
 static int mf_choose_output_type(AVCodecContext *avctx);
 static int mf_setup_context(AVCodecContext *avctx);
@@ -64,15 +64,15 @@ static int mf_setup_context(AVCodecContext *avctx);
 
 static int mf_wait_events(AVCodecContext *avctx)
 {
-    MFContext *c = avctx->priv_data;
+    MFEncoderContext *c = avctx->priv_data;
 
-    if (!c->async_events)
+    if (!c->mfa.async_events)
         return 0;
 
-    while (!(c->async_need_input || c->async_have_output || c->draining_done || c->async_marker)) {
+    while (!(c->mfa.async_need_input || c->mfa.async_have_output || c->draining_done || c->mfa.async_marker)) {
         IMFMediaEvent *ev = NULL;
         MediaEventType ev_id = 0;
-        HRESULT hr = IMFMediaEventGenerator_GetEvent(c->async_events, 0, &ev);
+        HRESULT hr = IMFMediaEventGenerator_GetEvent(c->mfa.async_events, 0, &ev);
         if (FAILED(hr)) {
             av_log(avctx, AV_LOG_ERROR, "IMFMediaEventGenerator_GetEvent() failed: %s\n",
                    ff_hr_str(hr));
@@ -82,16 +82,16 @@ static int mf_wait_events(AVCodecContext *avctx)
         switch (ev_id) {
         case ff_METransformNeedInput:
             if (!c->draining)
-                c->async_need_input = 1;
+                c->mfa.async_need_input = 1;
             break;
         case ff_METransformHaveOutput:
-            c->async_have_output = 1;
+            c->mfa.async_have_output = 1;
             break;
         case ff_METransformDrainComplete:
             c->draining_done = 1;
             break;
         case ff_METransformMarker:
-            c->async_marker = 1;
+            c->mfa.async_marker = 1;
             break;
         default: ;
         }
@@ -138,7 +138,7 @@ static int64_t mf_sample_get_pts(AVCodecContext *avctx, IMFSample *sample)
 
 static int mf_enca_output_type_get(AVCodecContext *avctx, IMFMediaType *type)
 {
-    MFContext *c = avctx->priv_data;
+    MFEncoderContext *c = avctx->priv_data;
     HRESULT hr;
     UINT32 sz;
 
@@ -201,7 +201,7 @@ static int mf_encv_output_type_get(AVCodecContext *avctx, IMFMediaType *type)
 
 static int mf_output_type_get(AVCodecContext *avctx)
 {
-    MFContext *c = avctx->priv_data;
+    MFEncoderContext *c = avctx->priv_data;
     HRESULT hr;
     IMFMediaType *type;
     int ret;
@@ -231,7 +231,7 @@ static int mf_output_type_get(AVCodecContext *avctx)
 
 static int mf_sample_to_avpacket(AVCodecContext *avctx, IMFSample *sample, AVPacket *avpkt)
 {
-    MFContext *c = avctx->priv_data;
+    MFEncoderContext *c = avctx->priv_data;
     HRESULT hr;
     int ret;
     DWORD len;
@@ -286,7 +286,7 @@ static int mf_sample_to_avpacket(AVCodecContext *avctx, IMFSample *sample, AVPac
 
 static IMFSample *mf_a_avframe_to_sample(AVCodecContext *avctx, const AVFrame *frame)
 {
-    MFContext *c = avctx->priv_data;
+    MFEncoderContext *c = avctx->priv_data;
     size_t len;
     size_t bps;
     IMFSample *sample;
@@ -294,7 +294,7 @@ static IMFSample *mf_a_avframe_to_sample(AVCodecContext *avctx, const AVFrame *f
     bps = av_get_bytes_per_sample(avctx->sample_fmt) * avctx->ch_layout.nb_channels;
     len = frame->nb_samples * bps;
 
-    sample = ff_create_memory_sample(&c->functions, frame->data[0], len,
+    sample = ff_create_memory_sample(&mfapi_funcs, frame->data[0], len,
                                      c->in_info.cbAlignment);
     if (sample)
         IMFSample_SetSampleDuration(sample, mf_to_mf_time(avctx, frame->nb_samples));
@@ -303,7 +303,7 @@ static IMFSample *mf_a_avframe_to_sample(AVCodecContext *avctx, const AVFrame *f
 
 static IMFSample *mf_v_avframe_to_sample(AVCodecContext *avctx, const AVFrame *frame)
 {
-    MFContext *c = avctx->priv_data;
+    MFEncoderContext *c = avctx->priv_data;
     IMFSample *sample;
     IMFMediaBuffer *buffer;
     BYTE *data;
@@ -315,7 +315,7 @@ static IMFSample *mf_v_avframe_to_sample(AVCodecContext *avctx, const AVFrame *f
     if (size < 0)
         return NULL;
 
-    sample = ff_create_memory_sample(&c->functions, NULL, size,
+    sample = ff_create_memory_sample(&mfapi_funcs, NULL, size,
                                      c->in_info.cbAlignment);
     if (!sample)
         return NULL;
@@ -350,7 +350,7 @@ static IMFSample *mf_v_avframe_to_sample(AVCodecContext *avctx, const AVFrame *f
 
 static IMFSample *mf_avframe_to_sample(AVCodecContext *avctx, const AVFrame *frame)
 {
-    MFContext *c = avctx->priv_data;
+    MFEncoderContext*c = avctx->priv_data;
     IMFSample *sample;
 
     if (c->is_audio) {
@@ -367,15 +367,15 @@ static IMFSample *mf_avframe_to_sample(AVCodecContext *avctx, const AVFrame *fra
 
 static int mf_send_sample(AVCodecContext *avctx, IMFSample *sample)
 {
-    MFContext *c = avctx->priv_data;
+    MFEncoderContext *c = avctx->priv_data;
     HRESULT hr;
     int ret;
 
     if (sample) {
-        if (c->async_events) {
+        if (c->mfa.async_events) {
             if ((ret = mf_wait_events(avctx)) < 0)
                 return ret;
-            if (!c->async_need_input)
+            if (!c->mfa.async_need_input)
                 return AVERROR(EAGAIN);
         }
         if (!c->sample_sent)
@@ -388,7 +388,7 @@ static int mf_send_sample(AVCodecContext *avctx, IMFSample *sample)
             av_log(avctx, AV_LOG_ERROR, "failed processing input: %s\n", ff_hr_str(hr));
             return AVERROR_EXTERNAL;
         }
-        c->async_need_input = 0;
+        c->mfa.async_need_input = 0;
     } else if (!c->draining) {
         hr = IMFTransform_ProcessMessage(c->mft, MFT_MESSAGE_COMMAND_DRAIN, 0);
         if (FAILED(hr))
@@ -396,7 +396,7 @@ static int mf_send_sample(AVCodecContext *avctx, IMFSample *sample)
         // Some MFTs (AC3) will send a frame after each drain command (???), so
         // this is required to make draining actually terminate.
         c->draining = 1;
-        c->async_need_input = 0;
+        c->mfa.async_need_input = 0;
     } else {
         return AVERROR_EOF;
     }
@@ -405,7 +405,7 @@ static int mf_send_sample(AVCodecContext *avctx, IMFSample *sample)
 
 static int mf_receive_sample(AVCodecContext *avctx, IMFSample **out_sample)
 {
-    MFContext *c = avctx->priv_data;
+    MFEncoderContext *c = avctx->priv_data;
     HRESULT hr;
     DWORD st;
     MFT_OUTPUT_DATA_BUFFER out_buffers;
@@ -416,17 +416,17 @@ static int mf_receive_sample(AVCodecContext *avctx, IMFSample **out_sample)
         *out_sample = NULL;
         sample = NULL;
 
-        if (c->async_events) {
+        if (c->mfa.async_events) {
             if ((ret = mf_wait_events(avctx)) < 0)
                 return ret;
-            if (!c->async_have_output || c->draining_done) {
+            if (!c->mfa.async_have_output || c->draining_done) {
                 ret = 0;
                 break;
             }
         }
 
         if (!c->out_stream_provides_samples) {
-            sample = ff_create_memory_sample(&c->functions, NULL,
+            sample = ff_create_memory_sample(&mfapi_funcs, NULL,
                                              c->out_info.cbSize,
                                              c->out_info.cbAlignment);
             if (!sample)
@@ -465,7 +465,7 @@ static int mf_receive_sample(AVCodecContext *avctx, IMFSample **out_sample)
             if (ret > 0) {
                 ret = mf_setup_context(avctx);
                 if (ret >= 0) {
-                    c->async_have_output = 0;
+                    c->mfa.async_have_output = 0;
                     continue;
                 }
             }
@@ -477,7 +477,7 @@ static int mf_receive_sample(AVCodecContext *avctx, IMFSample **out_sample)
         break;
     }
 
-    c->async_have_output = 0;
+    c->mfa.async_have_output = 0;
 
     if (ret >= 0 && !*out_sample)
         ret = c->draining_done ? AVERROR_EOF : AVERROR(EAGAIN);
@@ -487,7 +487,7 @@ static int mf_receive_sample(AVCodecContext *avctx, IMFSample **out_sample)
 
 static int mf_receive_packet(AVCodecContext *avctx, AVPacket *avpkt)
 {
-    MFContext *c = avctx->priv_data;
+    MFEncoderContext *c = avctx->priv_data;
     IMFSample *sample = NULL;
     int ret;
 
@@ -532,7 +532,7 @@ static int mf_receive_packet(AVCodecContext *avctx, AVPacket *avpkt)
 // the one which seems to match best.
 static int64_t mf_enca_output_score(AVCodecContext *avctx, IMFMediaType *type)
 {
-    MFContext *c = avctx->priv_data;
+    MFEncoderContext *c = avctx->priv_data;
     HRESULT hr;
     UINT32 t;
     GUID tg;
@@ -632,7 +632,7 @@ static int mf_enca_input_adjust(AVCodecContext *avctx, IMFMediaType *type)
 
 static int64_t mf_encv_output_score(AVCodecContext *avctx, IMFMediaType *type)
 {
-    MFContext *c = avctx->priv_data;
+    MFEncoderContext *c = avctx->priv_data;
     GUID tg;
     HRESULT hr;
     int score = -1;
@@ -648,7 +648,7 @@ static int64_t mf_encv_output_score(AVCodecContext *avctx, IMFMediaType *type)
 
 static int mf_encv_output_adjust(AVCodecContext *avctx, IMFMediaType *type)
 {
-    MFContext *c = avctx->priv_data;
+    MFEncoderContext *c = avctx->priv_data;
     AVRational framerate;
 
     ff_MFSetAttributeSize((IMFAttributes *)type, &MF_MT_FRAME_SIZE, avctx->width, avctx->height);
@@ -732,7 +732,7 @@ static int mf_encv_input_adjust(AVCodecContext *avctx, IMFMediaType *type)
 
 static int mf_choose_output_type(AVCodecContext *avctx)
 {
-    MFContext *c = avctx->priv_data;
+    MFEncoderContext *c = avctx->priv_data;
     HRESULT hr;
     int ret;
     IMFMediaType *out_type = NULL;
@@ -783,7 +783,7 @@ static int mf_choose_output_type(AVCodecContext *avctx)
     if (out_type) {
         av_log(avctx, AV_LOG_VERBOSE, "picking output type %d.\n", out_type_index);
     } else {
-        hr = c->functions.MFCreateMediaType(&out_type);
+        hr = mfapi_funcs.MFCreateMediaType(&out_type);
         if (FAILED(hr)) {
             ret = AVERROR(ENOMEM);
             goto done;
@@ -821,7 +821,7 @@ done:
 
 static int mf_choose_input_type(AVCodecContext *avctx)
 {
-    MFContext *c = avctx->priv_data;
+    MFEncoderContext *c = avctx->priv_data;
     HRESULT hr;
     int ret;
     IMFMediaType *in_type = NULL;
@@ -936,7 +936,7 @@ static int mf_negotiate_types(AVCodecContext *avctx)
 
 static int mf_setup_context(AVCodecContext *avctx)
 {
-    MFContext *c = avctx->priv_data;
+    MFEncoderContext *c = avctx->priv_data;
     HRESULT hr;
     int ret;
 
@@ -964,7 +964,7 @@ static int mf_setup_context(AVCodecContext *avctx)
 
 static int mf_unlock_async(AVCodecContext *avctx)
 {
-    MFContext *c = avctx->priv_data;
+    MFEncoderContext *c = avctx->priv_data;
     HRESULT hr;
     IMFAttributes *attrs;
     UINT32 v;
@@ -998,7 +998,7 @@ static int mf_unlock_async(AVCodecContext *avctx)
         goto err;
     }
 
-    hr = IMFTransform_QueryInterface(c->mft, &IID_IMFMediaEventGenerator, (void **)&c->async_events);
+    hr = IMFTransform_QueryInterface(c->mft, &IID_IMFMediaEventGenerator, (void **)&c->mfa.async_events);
     if (FAILED(hr)) {
         av_log(avctx, AV_LOG_ERROR, "could not get async interface\n");
         goto err;
@@ -1011,39 +1011,9 @@ err:
     return res;
 }
 
-static int mf_create(void *log, MFFunctions *f, IMFTransform **mft,
-                     const AVCodec *codec, int use_hw)
-{
-    int is_audio = codec->type == AVMEDIA_TYPE_AUDIO;
-    const CLSID *subtype = ff_codec_to_mf_subtype(codec->id);
-    MFT_REGISTER_TYPE_INFO reg = {0};
-    GUID category;
-    int ret;
-
-    *mft = NULL;
-
-    if (!subtype)
-        return AVERROR(ENOSYS);
-
-    reg.guidSubtype = *subtype;
-
-    if (is_audio) {
-        reg.guidMajorType = MFMediaType_Audio;
-        category = MFT_CATEGORY_AUDIO_ENCODER;
-    } else {
-        reg.guidMajorType = MFMediaType_Video;
-        category = MFT_CATEGORY_VIDEO_ENCODER;
-    }
-
-    if ((ret = ff_instantiate_mf(log, f, category, NULL, &reg, use_hw, mft)) < 0)
-        return ret;
-
-    return 0;
-}
-
 static int mf_init_encoder(AVCodecContext *avctx)
 {
-    MFContext *c = avctx->priv_data;
+    MFEncoderContext *c = avctx->priv_data;
     HRESULT hr;
     int ret;
     const CLSID *subtype = ff_codec_to_mf_subtype(avctx->codec_id);
@@ -1065,7 +1035,7 @@ static int mf_init_encoder(AVCodecContext *avctx)
 
     c->main_subtype = *subtype;
 
-    if ((ret = mf_create(avctx, &c->functions, &c->mft, avctx->codec, use_hw)) < 0)
+    if ((ret = mf_create(avctx, &c->mft, avctx->codec, use_hw)) < 0)
         return ret;
 
     if ((ret = mf_unlock_async(avctx)) < 0)
@@ -1102,7 +1072,7 @@ static int mf_init_encoder(AVCodecContext *avctx)
         return AVERROR_EXTERNAL;
     }
 
-    if (avctx->flags & AV_CODEC_FLAG_GLOBAL_HEADER && c->async_events &&
+    if (avctx->flags & AV_CODEC_FLAG_GLOBAL_HEADER && c->mfa.async_events &&
         c->is_video && !avctx->extradata) {
         int sleep = 10000, total = 0;
         av_log(avctx, AV_LOG_VERBOSE, "Awaiting extradata\n");
@@ -1131,15 +1101,15 @@ static int mf_init_encoder(AVCodecContext *avctx)
 
 static int mf_close(AVCodecContext *avctx)
 {
-    MFContext *c = avctx->priv_data;
+    MFEncoderContext *c = avctx->priv_data;
 
     if (c->codec_api)
         ICodecAPI_Release(c->codec_api);
 
-    if (c->async_events)
-        IMFMediaEventGenerator_Release(c->async_events);
+    if (c->mfa.async_events)
+        IMFMediaEventGenerator_Release(c->mfa.async_events);
 
-    ff_free_mf(&c->functions, &c->mft);
+    ff_free_mf(&mfapi_funcs, &c->mft);
 
     av_frame_free(&c->frame);
 
@@ -1152,17 +1122,15 @@ static int mf_close(AVCodecContext *avctx)
 static int mf_init(AVCodecContext *avctx)
 {
     int ret;
-    MFContext *c = avctx->priv_data;
-    if ((ret = ff_mf_load_library(avctx, &c->functions)) == 0) {
-        if ((ret = mf_init_encoder(avctx)) == 0) {
-            return 0;
-        }
+    MFEncoderContext *c = avctx->priv_data;
+    if ((ret = mf_init_encoder(avctx)) == 0) {
+        return 0;
     }
     mf_close(avctx);
     return ret;
 }
 
-#define OFFSET(x) offsetof(MFContext, x)
+#define OFFSET(x) offsetof(MFEncoderContext, x)
 
 #define MF_ENCODER(MEDIATYPE, NAME, ID, OPTS, FMTS, CAPS) \
     static const AVClass ff_ ## NAME ## _mf_encoder_class = {                  \
@@ -1177,7 +1145,7 @@ static int mf_init(AVCodecContext *avctx)
         .p.long_name    = NULL_IF_CONFIG_SMALL(#ID " via MediaFoundation"),    \
         .p.type         = AVMEDIA_TYPE_ ## MEDIATYPE,                          \
         .p.id           = AV_CODEC_ID_ ## ID,                                  \
-        .priv_data_size = sizeof(MFContext),                                   \
+        .priv_data_size = sizeof(MFEncoderContext),                            \
         .init           = mf_init,                                             \
         .close          = mf_close,                                            \
         FF_CODEC_RECEIVE_PACKET_CB(mf_receive_packet),                         \
