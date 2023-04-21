@@ -168,7 +168,7 @@ static IMFSample *mf_avpacket_to_sample(AVCodecContext *avctx, const AVPacket *a
         av_packet_unref(&tmp2);
     }
 
-    sample = ff_create_memory_sample(c->mf_api, tmp.data, tmp.size, c->in_info.cbAlignment);
+    sample = ff_create_memory_sample(&c->mf_api, tmp.data, tmp.size, c->in_info.cbAlignment);
     if (sample) {
         int64_t pts = avpkt->pts;
         if (pts == AV_NOPTS_VALUE)
@@ -546,7 +546,7 @@ static IMFSample *mf_a_avframe_to_sample(AVCodecContext *avctx, const AVFrame *f
     bps = av_get_bytes_per_sample(avctx->sample_fmt) * avctx->channels;
     len = frame->nb_samples * bps;
 
-    sample = ff_create_memory_sample(c->mf_api, frame->data[0], len, c->in_info.cbAlignment);
+    sample = ff_create_memory_sample(&c->mf_api, frame->data[0], len, c->in_info.cbAlignment);
     if (sample)
         IMFSample_SetSampleDuration(sample, mf_to_mf_time(avctx, frame->nb_samples));
     return sample;
@@ -566,7 +566,7 @@ static IMFSample *mf_v_avframe_to_sample(AVCodecContext *avctx, const AVFrame *f
     if (size < 0)
         return NULL;
 
-    sample = ff_create_memory_sample(c->mf_api, NULL, size, c->in_info.cbAlignment);
+    sample = ff_create_memory_sample(&c->mf_api, NULL, size, c->in_info.cbAlignment);
     if (!sample)
         return NULL;
 
@@ -711,7 +711,7 @@ static int mf_receive_sample(AVCodecContext *avctx, IMFSample **out_sample)
         }
 
         if (!c->out_stream_provides_samples) {
-            sample = ff_create_memory_sample(c->mf_api, NULL, c->out_info.cbSize, c->out_info.cbAlignment);
+            sample = ff_create_memory_sample(&c->mf_api, NULL, c->out_info.cbSize, c->out_info.cbAlignment);
             if (!sample)
                 return AVERROR(ENOMEM);
         }
@@ -1513,12 +1513,12 @@ static int mf_init(AVCodecContext *avctx)
 
     c->main_subtype = *subtype;
 
-    if ((ret = mf_create(avctx, &c->mft, avctx->codec, use_hw)) < 0)
+    if ((ret = mf_create(avctx, &c->mf_api, &c->mft, avctx->codec, use_hw)) < 0)
         return ret;
 
     dec = av_mallocz(sizeof(*dec));
     if (!dec) {
-        ff_free_mf(c->mf_api, &c->mft);
+        ff_free_mf(&c->mf_api, &c->mft);
         return AVERROR(ENOMEM);
     }
     dec->mft = c->mft;
@@ -1527,7 +1527,7 @@ static int mf_init(AVCodecContext *avctx)
                                       mf_release_decoder, NULL,
                                       AV_BUFFER_FLAG_READONLY);
     if (!c->decoder_ref) {
-        ff_free_mf(c->mf_api, &c->mft);
+        ff_free_mf(&c->mf_api, &c->mft);
         return AVERROR(ENOMEM);
     }
 
@@ -1676,6 +1676,7 @@ MF_DECODER(AUDIO, wmavoice,    WMAVOICE,        NULL);
 
 #define VD AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_DECODING_PARAM
 static const AVOption vdec_opts[] = {
+    { "mfdec",        "", 0, AV_OPT_TYPE_CONST, {.i64 = 0 }, 0, 1, VD},
     // Only used for non-opaque output (otherwise, the AVHWDeviceContext matters)
     {"use_d3d",       "D3D decoding mode", OFFSET(opt_use_d3d), AV_OPT_TYPE_INT, {.i64 = AV_MF_NONE}, 0, INT_MAX, VD, "use_d3d"},
     { "auto",         "Any (or none) D3D mode", 0, AV_OPT_TYPE_CONST, {.i64 = AV_MF_AUTO}, 0, 0, VD, "use_d3d"},

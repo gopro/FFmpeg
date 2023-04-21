@@ -280,7 +280,7 @@ static IMFSample *mf_a_avframe_to_sample(AVCodecContext *avctx, const AVFrame *f
     bps = av_get_bytes_per_sample(avctx->sample_fmt) * avctx->ch_layout.nb_channels;
     len = frame->nb_samples * bps;
 
-    sample = ff_create_memory_sample(c->mf_api, frame->data[0], len,
+    sample = ff_create_memory_sample(&c->mf_api, frame->data[0], len,
                                      c->in_info.cbAlignment);
     if (sample)
         IMFSample_SetSampleDuration(sample, mf_to_mf_time(avctx, frame->nb_samples));
@@ -301,7 +301,7 @@ static IMFSample *mf_v_avframe_to_sample(AVCodecContext *avctx, const AVFrame *f
     if (size < 0)
         return NULL;
 
-    sample = ff_create_memory_sample(c->mf_api, NULL, size,
+    sample = ff_create_memory_sample(&c->mf_api, NULL, size,
                                      c->in_info.cbAlignment);
     if (!sample)
         return NULL;
@@ -412,7 +412,7 @@ static int mf_receive_sample(AVCodecContext *avctx, IMFSample **out_sample)
         }
 
         if (!c->out_stream_provides_samples) {
-            sample = ff_create_memory_sample(c->mf_api, NULL,
+            sample = ff_create_memory_sample(&c->mf_api, NULL,
                                              c->out_info.cbSize,
                                              c->out_info.cbAlignment);
             if (!sample)
@@ -769,7 +769,7 @@ static int mf_choose_output_type(AVCodecContext *avctx)
     if (out_type) {
         av_log(avctx, AV_LOG_VERBOSE, "picking output type %d.\n", out_type_index);
     } else {
-        hr = c->mf_api->MFCreateMediaType(&out_type);
+        hr = c->mf_api.MFCreateMediaType(&out_type);
         if (FAILED(hr)) {
             ret = AVERROR(ENOMEM);
             goto done;
@@ -1021,7 +1021,7 @@ static int mf_init_encoder(AVCodecContext *avctx)
 
     c->main_subtype = *subtype;
 
-    if ((ret = mf_create(avctx, &c->mft, avctx->codec, use_hw)) < 0)
+    if ((ret = mf_create(avctx, &c->mf_api, &c->mft, avctx->codec, use_hw)) < 0)
         return ret;
 
     if ((ret = mf_unlock_async(avctx)) < 0)
@@ -1095,7 +1095,7 @@ static int mf_close(AVCodecContext *avctx)
     if (c->async_events)
         IMFMediaEventGenerator_Release(c->async_events);
 
-    ff_free_mf(c->mf_api, &c->mft);
+    ff_free_mf(&c->mf_api, &c->mft);
 
     av_frame_free(&c->frame);
 

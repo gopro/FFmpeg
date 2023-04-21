@@ -67,7 +67,7 @@ typedef struct MFFunctions {
     AVClass *av_class;                          \
     AVFrame *frame;                             \
     GUID main_subtype;                          \
-    MFFunctions *mf_api;                        \
+    MFFunctions mf_api;                         \
     IMFTransform *mft;                          \
     ICodecAPI *codec_api;                       \
     IMFMediaEventGenerator *async_events;       \
@@ -241,6 +241,6 @@ int ff_instantiate_mf(void *log, MFFunctions *f, GUID category,
                       MFT_REGISTER_TYPE_INFO *out_type,
                       int use_hw, IMFTransform **res);
 void ff_free_mf(MFFunctions *f, IMFTransform **mft);
-int mf_create(void* log, IMFTransform** mft, const AVCodec* codec, int use_hw);
+int mf_create(void* log, MFFunctions* f, IMFTransform** mft, const AVCodec* codec, int use_hw);
 
 #endif

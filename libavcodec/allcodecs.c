@@ -33,6 +33,7 @@
 #include "codec.h"
 #include "codec_id.h"
 #include "codec_internal.h"
+#include "libavutil/opt.h"
 
 extern const FFCodec ff_a64multi_encoder;
 extern const FFCodec ff_a64multi5_encoder;
@@ -942,8 +943,17 @@ static const AVCodec *find_codec(enum AVCodecID id, int (*x)(const AVCodec *))
         if (p->id == id) {
             if (p->capabilities & AV_CODEC_CAP_EXPERIMENTAL && !experimental) {
                 experimental = p;
-            } else
+            }
+            else {
+#if defined(_WIN32) && CONFIG_MEDIAFOUNDATION
+                if (p->priv_class && p->priv_class->option &&
+                    stricmp(p->priv_class->option->name, "mfdec") == 0)
+                    return p;
+                else
+                    continue;
+#endif
                 return p;
+            }
         }
     }
 
