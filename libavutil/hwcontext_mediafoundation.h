@@ -31,8 +31,8 @@
 #include <dxva2api.h>
 
 enum AVMFDeviceType {
-    AV_MF_AUTO,
     AV_MF_NONE,
+    AV_MF_AUTO,
     AV_MF_D3D9,
     AV_MF_D3D11,
 };

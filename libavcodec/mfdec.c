@@ -1367,7 +1367,7 @@ static int mf_init_hwaccel(AVCodecContext *avctx)
         mf_device_ctx = (void *)device_ctx->hwctx;
         av_log(avctx, AV_LOG_VERBOSE, "Using user-provided AVHWDeviceContext.\n");
     } else {
-        // Even for opt_use_d3d==AV_MF_NONE, a a dummy MF AVHWDeviceContext is
+        // Even for opt_use_d3d==AV_MF_NONE, a dummy MF AVHWDeviceContext is
         // needed to copy frame data from IMFSamples to AVFrames.
         AVHWDeviceContext *device_ctx;
         c->device_ref = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_MEDIAFOUNDATION);
@@ -1679,8 +1679,8 @@ static const AVOption vdec_opts[] = {
     { "mfdec",        "", 0, AV_OPT_TYPE_CONST, {.i64 = 0 }, 0, 1, VD},
     // Only used for non-opaque output (otherwise, the AVHWDeviceContext matters)
     {"use_d3d",       "D3D decoding mode", OFFSET(opt_use_d3d), AV_OPT_TYPE_INT, {.i64 = AV_MF_NONE}, 0, INT_MAX, VD, "use_d3d"},
-    { "auto",         "Any (or none) D3D mode", 0, AV_OPT_TYPE_CONST, {.i64 = AV_MF_AUTO}, 0, 0, VD, "use_d3d"},
     { "none",         "Disable D3D mode", 0, AV_OPT_TYPE_CONST, {.i64 = AV_MF_NONE}, 0, 0, VD, "use_d3d"},
+    { "auto",         "Any (or none) D3D mode", 0, AV_OPT_TYPE_CONST, {.i64 = AV_MF_AUTO}, 0, 0, VD, "use_d3d"},
     { "d3d9",         "D3D9 decoding", 0, AV_OPT_TYPE_CONST, {.i64 = AV_MF_D3D9}, 0, 0, VD, "use_d3d"},
     { "d3d11",        "D3D11 decoding", 0, AV_OPT_TYPE_CONST, {.i64 = AV_MF_D3D11}, 0, 0, VD, "use_d3d"},
     // Can be used to fail early if no hwaccel is available
