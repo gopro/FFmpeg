@@ -25,6 +25,8 @@
  */
 
 #include <windows.h>
+#include <d3d12.h>
+#include <d3d11on12.h>
 #include <d3d11.h>
 #include <d3d9.h>
 #include <mfidl.h>
@@ -35,6 +37,8 @@ enum AVMFDeviceType {
     AV_MF_AUTO,
     AV_MF_D3D9,
     AV_MF_D3D11,
+    AV_MF_D3D11on12,
+    AV_MF_D3D12,
 };
 
 /**
@@ -81,7 +85,13 @@ typedef struct AVMFDeviceContext {
     enum AVMFDeviceType device_type;
 
     /**
-     * The following field is set for device_type==AV_MF_D3D11.
+     * The following field is set for device_type==AV_MF_D3D11on12 or AV_MF_D3D12.
+     * Will be released on AVHWDeviceContext termination.
+     */
+    ID3D12CommandQueue *d3d12_command_queue;
+
+    /**
+     * The following field is set for device_type==AV_MF_D3D11 or AV_MF_D3D11on12 or AV_MF_D3D12.
      * Will be released on AVHWDeviceContext termination.
      */
     IMFDXGIDeviceManager *d3d11_manager;
@@ -112,6 +122,20 @@ typedef struct AVMFDeviceContext {
      * Will be released on AVHWDeviceContext termination.
      */
     IDirect3DDevice9 *init_d3d9_device;
+
+    /**
+     * If d3d12_manager is not set, and device_type indicates d3d12 should be
+     * used, this will be used to create a d3d12_manager.
+     * This _must_ have been initialized with SetMultithreadProtected(TRUE).
+     * Will be released on AVHWDeviceContext termination.
+     */
+    ID3D12Device* init_d3d12_device;
+
+    // instance variables for D3d11012
+    UINT d3d12_frame_cnt;
+    UINT d3d12_window_width;
+    UINT d3d12_window_height;
+
 } AVMFDeviceContext;
 
 
