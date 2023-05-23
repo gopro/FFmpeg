@@ -78,8 +78,6 @@ typedef struct MFFunctions {
     MFT_INPUT_STREAM_INFO in_info;              \
     MFT_OUTPUT_STREAM_INFO out_info;            \
     int is_video, is_audio;                     \
-    int is_enc;                                 \
-    int is_dec;                                 \
     int out_stream_provides_samples;            \
     int draining, draining_done;                \
     int sample_sent;
@@ -92,6 +90,10 @@ HRESULT ff_MFSetAttributeSize(IMFAttributes *pattr, REFGUID guid,
                               UINT32 uw, UINT32 uh);
 #define ff_MFSetAttributeRatio ff_MFSetAttributeSize
 #define ff_MFGetAttributeRatio ff_MFGetAttributeSize
+
+// Consider cleaning up ff_CODECAPI_xxx defines (these exist because the official MS GUIDS were NOT defined in earlier MINGW headers)
+// for FFmpeg main branch pull request, given MINGW version is up to 11 now:
+// See:  https://www.mingw-w64.org/changelog
 
 DEFINE_GUID(ff_MF_MT_VIDEO_ROTATION, 0xc380465d, 0x2271, 0x428c, 0x9b, 0x83, 0xec, 0xea, 0x3b, 0x4a, 0x85, 0xc1);
 DEFINE_GUID(ff_CODECAPI_AVDecVideoAcceleration_H264, 0xf7db8a2f, 0x4f48, 0x4ee8, 0xae, 0x31, 0x8b, 0x6e, 0xbe, 0x55, 0x8a, 0xe2);

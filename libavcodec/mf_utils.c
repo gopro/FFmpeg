@@ -737,32 +737,18 @@ int mf_create(void* log, MFFunctions* mf_api, IMFTransform** mft, const AVCodec*
 
     ff_mf_load_library(log, mf_api);
 
-    if (is_dec) {
-        if (is_audio) {
-            reg.guidMajorType = MFMediaType_Audio;
-            category = MFT_CATEGORY_AUDIO_DECODER;
-        }
-        else {
-            reg.guidMajorType = MFMediaType_Video;
-            category = MFT_CATEGORY_VIDEO_DECODER;
-        }
-
-        if ((ret = ff_instantiate_mf(log, mf_api, category, &reg, NULL, use_hw, mft)) < 0)
-            return ret;
+    if (is_audio) {
+        reg.guidMajorType = MFMediaType_Audio;
+        category = is_dec ? MFT_CATEGORY_AUDIO_DECODER : MFT_CATEGORY_AUDIO_ENCODER;
     }
     else {
-        if (is_audio) {
-            reg.guidMajorType = MFMediaType_Audio;
-            category = MFT_CATEGORY_AUDIO_ENCODER;
-        }
-        else {
-            reg.guidMajorType = MFMediaType_Video;
-            category = MFT_CATEGORY_VIDEO_ENCODER;
-        }
-
-        if ((ret = ff_instantiate_mf(log, mf_api, category, NULL, &reg, use_hw, mft)) < 0)
-            return ret;
+        reg.guidMajorType = MFMediaType_Video;
+        category = is_dec ? MFT_CATEGORY_VIDEO_DECODER : MFT_CATEGORY_VIDEO_ENCODER;
     }
+
+    if ((ret = ff_instantiate_mf(log, mf_api, category, 
+        (is_dec ? &reg : NULL), (is_dec ? NULL : &reg),  use_hw, mft)) < 0) 
+        return ret;
 
     return 0;
 }

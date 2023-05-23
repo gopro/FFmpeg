@@ -44,9 +44,6 @@ typedef struct MFDecoder {
 
 typedef struct MFContext {
     BASE_CODEC_CONTEXT
-    int lavc_init_done;
-    uint8_t* send_extradata;
-    int send_extradata_size;
     AVBSFContext* bsfc;
     int sw_format;
     int use_opaque; // whether AV_PIX_FMT_MF is returned to the user
@@ -60,7 +57,6 @@ typedef struct MFContext {
     int opt_require_d3d;
     int opt_out_samples;
     int opt_d3d_bind_flags;
-    AVFrame* tmp_frame;
 } MFContext;
 
 static int mf_choose_output_type(AVCodecContext *avctx);
@@ -118,7 +114,7 @@ static AVRational mf_get_tb(AVCodecContext *avctx)
     return MF_TIMEBASE;
 }
 
-static LONGLONG mf_to_mf_time(AVCodecContext *avctx, int64_t av_pts)
+static LONGLONG mf_scale_to_mf_time(AVCodecContext *avctx, int64_t av_pts)
 {
     if (av_pts == AV_NOPTS_VALUE)
         return MF_INVALID_TIME;
@@ -127,12 +123,12 @@ static LONGLONG mf_to_mf_time(AVCodecContext *avctx, int64_t av_pts)
 
 static void mf_sample_set_pts(AVCodecContext *avctx, IMFSample *sample, int64_t av_pts)
 {
-    LONGLONG stime = mf_to_mf_time(avctx, av_pts);
+    LONGLONG stime = mf_scale_to_mf_time(avctx, av_pts);
     if (stime != MF_INVALID_TIME)
         IMFSample_SetSampleTime(sample, stime);
 }
 
-static int64_t mf_from_mf_time(AVCodecContext *avctx, LONGLONG stime)
+static int64_t mf_scale_to_av_time(AVCodecContext *avctx, LONGLONG stime)
 {
     return av_rescale_q(stime, MF_TIMEBASE, mf_get_tb(avctx));
 }
@@ -143,7 +139,7 @@ static int64_t mf_sample_get_pts(AVCodecContext *avctx, IMFSample *sample)
     HRESULT hr = IMFSample_GetSampleTime(sample, &pts);
     if (FAILED(hr))
         return AV_NOPTS_VALUE;
-    return mf_from_mf_time(avctx, pts);
+    return mf_scale_to_av_time(avctx, pts);
 }
 
 static IMFSample *mf_avpacket_to_sample(AVCodecContext *avctx, const AVPacket *avpkt)
@@ -216,14 +212,14 @@ static int mf_decv_output_type_get(AVCodecContext *avctx, IMFMediaType *type)
     MFContext *c = avctx->priv_data;
     AVHWFramesContext *frames_context;
     HRESULT hr;
-    UINT32 w, h, cw, ch, t, t2;
+    UINT32 width, height, frame_width, frame_height;
     MFVideoArea area = {0};
     int ret;
 
     c->sw_format = ff_media_type_to_pix_fmt((IMFAttributes *)type);
     avctx->pix_fmt = c->use_opaque ? AV_PIX_FMT_MEDIAFOUNDATION : c->sw_format;
 
-    hr = ff_MFGetAttributeSize((IMFAttributes *)type, &MF_MT_FRAME_SIZE, &cw, &ch);
+    hr = ff_MFGetAttributeSize((IMFAttributes *)type, &MF_MT_FRAME_SIZE, &frame_width, &frame_height);
     if (FAILED(hr))
         return AVERROR_EXTERNAL;
 
@@ -232,34 +228,37 @@ static int mf_decv_output_type_get(AVCodecContext *avctx, IMFMediaType *type)
     // adjusting the pixel plane pointers.)
     hr = IMFAttributes_GetBlob(type, &MF_MT_MINIMUM_DISPLAY_APERTURE, (void *)&area, sizeof(area), NULL);
     if (FAILED(hr)) {
-        w = cw;
-        h = ch;
+        width = frame_width;
+        height = frame_height;
     } else {
-        w = area.OffsetX.value + area.Area.cx;
-        h = area.OffsetY.value + area.Area.cy;
+        width = area.OffsetX.value + area.Area.cx;
+        height = area.OffsetY.value + area.Area.cy;
     }
 
-    if (w > cw || h > ch)
+    if (width > frame_width || height > frame_height)
         return AVERROR_EXTERNAL;
 
-    hr = ff_MFGetAttributeRatio((IMFAttributes *)type, &MF_MT_PIXEL_ASPECT_RATIO, &t, &t2);
+    // temp variables for various MF property gets
+    UINT t1, t2; 
+
+    hr = ff_MFGetAttributeRatio((IMFAttributes *)type, &MF_MT_PIXEL_ASPECT_RATIO, &t1, &t2);
     if (!FAILED(hr)) {
-        avctx->sample_aspect_ratio.num = t;
+        avctx->sample_aspect_ratio.num = t1;
         avctx->sample_aspect_ratio.den = t2;
     }
 
-    hr = IMFAttributes_GetUINT32(type, &MF_MT_YUV_MATRIX, &t);
+    hr = IMFAttributes_GetUINT32(type, &MF_MT_YUV_MATRIX, &t1);
     if (!FAILED(hr)) {
-        switch (t) {
+        switch (t1) {
         case MFVideoTransferMatrix_BT709:       avctx->colorspace = AVCOL_SPC_BT709; break;
         case MFVideoTransferMatrix_BT601:       avctx->colorspace = AVCOL_SPC_BT470BG; break;
         case MFVideoTransferMatrix_SMPTE240M:   avctx->colorspace = AVCOL_SPC_SMPTE240M; break;
         }
     }
 
-    hr = IMFAttributes_GetUINT32(type, &MF_MT_VIDEO_PRIMARIES, &t);
+    hr = IMFAttributes_GetUINT32(type, &MF_MT_VIDEO_PRIMARIES, &t1);
     if (!FAILED(hr)) {
-        switch (t) {
+        switch (t1) {
         case MFVideoPrimaries_BT709:            avctx->color_primaries = AVCOL_PRI_BT709; break;
         case MFVideoPrimaries_BT470_2_SysM:     avctx->color_primaries = AVCOL_PRI_BT470M; break;
         case MFVideoPrimaries_BT470_2_SysBG:    avctx->color_primaries = AVCOL_PRI_BT470BG; break;
@@ -268,9 +267,9 @@ static int mf_decv_output_type_get(AVCodecContext *avctx, IMFMediaType *type)
         }
     }
 
-    hr = IMFAttributes_GetUINT32(type, &MF_MT_TRANSFER_FUNCTION, &t);
+    hr = IMFAttributes_GetUINT32(type, &MF_MT_TRANSFER_FUNCTION, &t1);
     if (!FAILED(hr)) {
-        switch (t) {
+        switch (t1) {
         case MFVideoTransFunc_10:               avctx->color_trc = AVCOL_TRC_LINEAR; break;
         case MFVideoTransFunc_22:               avctx->color_trc = AVCOL_TRC_GAMMA22; break;
         case MFVideoTransFunc_709:              avctx->color_trc = AVCOL_TRC_BT709; break;
@@ -283,37 +282,39 @@ static int mf_decv_output_type_get(AVCodecContext *avctx, IMFMediaType *type)
         }
     }
 
-    hr = IMFAttributes_GetUINT32(type, &MF_MT_VIDEO_CHROMA_SITING, &t);
+    hr = IMFAttributes_GetUINT32(type, &MF_MT_VIDEO_CHROMA_SITING, &t1);
     if (!FAILED(hr)) {
-        switch (t) {
+        switch (t1) {
         case MFVideoChromaSubsampling_MPEG2:    avctx->chroma_sample_location = AVCHROMA_LOC_LEFT; break;
         case MFVideoChromaSubsampling_MPEG1:    avctx->chroma_sample_location = AVCHROMA_LOC_CENTER; break;
         }
     }
 
-    hr = IMFAttributes_GetUINT32(type, &MF_MT_VIDEO_NOMINAL_RANGE, &t);
+    hr = IMFAttributes_GetUINT32(type, &MF_MT_VIDEO_NOMINAL_RANGE, &t1);
     if (!FAILED(hr)) {
-        switch (t) {
+        switch (t1) {
         case MFNominalRange_0_255:              avctx->color_range = AVCOL_RANGE_JPEG; break;
         case MFNominalRange_16_235:             avctx->color_range = AVCOL_RANGE_MPEG; break;
         }
     }
 
-    if ((ret = ff_set_dimensions(avctx, cw, ch)) < 0)
+    if ((ret = ff_set_dimensions(avctx, frame_width, frame_height)) < 0)
         return ret;
 
-    avctx->width = w;
-    avctx->height = h;
+    avctx->width = width;
+    avctx->height = height;
 
     av_buffer_unref(&c->frames_ref);
     c->frames_ref = av_hwframe_ctx_alloc(c->device_ref);
     if (!c->frames_ref)
         return AVERROR(ENOMEM);
+
     frames_context = (void *)c->frames_ref->data;
     frames_context->format = AV_PIX_FMT_MEDIAFOUNDATION;
-    frames_context->width = cw;
-    frames_context->height = ch;
+    frames_context->width = frame_width;
+    frames_context->height = frame_height;
     frames_context->sw_format = c->sw_format;
+    
     if ((ret = av_hwframe_ctx_init(c->frames_ref)) < 0) {
         av_buffer_unref(&c->frames_ref);
         return ret;
@@ -339,9 +340,9 @@ static int mf_output_type_get(AVCodecContext *avctx)
     ff_media_type_dump(avctx, type);
 
     ret = 0;
-    if (c->is_dec && c->is_video) {
+    if (c->is_video) {
         ret = mf_decv_output_type_get(avctx, type);
-    } else if (c->is_dec && c->is_audio) {
+    } else if (c->is_audio) {
         ret = mf_deca_output_type_get(avctx, type);
     }
 
@@ -359,7 +360,7 @@ static int mf_sample_to_a_avframe(AVCodecContext *avctx, IMFSample *sample, AVFr
     DWORD len;
     IMFMediaBuffer *buffer;
     BYTE *data;
-    size_t bps;
+    int bps;
 
     hr = IMFSample_GetTotalLength(sample, &len);
     if (FAILED(hr))
@@ -408,7 +409,7 @@ static void mf_buffer_ref_free(void *opaque, uint8_t *data)
 static int mf_sample_to_v_avframe(AVCodecContext *avctx, IMFSample *sample, AVFrame *frame)
 {
     MFContext *c = avctx->priv_data;
-    AVFrame *mf_frame = c->tmp_frame;
+    AVFrame *mf_frame = c->frame;
     int ret = 0;
 
     if (!c->frames_ref)
@@ -490,131 +491,6 @@ static int mf_sample_to_avframe(AVCodecContext *avctx, IMFSample *sample, AVFram
     return ret;
 }
 
-static int mf_sample_to_avpacket(AVCodecContext *avctx, IMFSample *sample, AVPacket *avpkt)
-{
-    MFContext *c = avctx->priv_data;
-    HRESULT hr;
-    int ret;
-    DWORD len;
-    IMFMediaBuffer *buffer;
-    BYTE *data;
-    UINT64 t;
-    UINT32 t32;
-
-    hr = IMFSample_GetTotalLength(sample, &len);
-    if (FAILED(hr))
-        return AVERROR_EXTERNAL;
-
-    if ((ret = av_new_packet(avpkt, len)) < 0)
-        return ret;
-
-    IMFSample_ConvertToContiguousBuffer(sample, &buffer);
-    if (FAILED(hr))
-        return AVERROR_EXTERNAL;
-
-    hr = IMFMediaBuffer_Lock(buffer, &data, NULL, NULL);
-    if (FAILED(hr)) {
-        IMFMediaBuffer_Release(buffer);
-        return AVERROR_EXTERNAL;
-    }
-
-    memcpy(avpkt->data, data, len);
-
-    IMFMediaBuffer_Unlock(buffer);
-    IMFMediaBuffer_Release(buffer);
-
-    avpkt->pts = avpkt->dts = mf_sample_get_pts(avctx, sample);
-
-    hr = IMFAttributes_GetUINT32(sample, &MFSampleExtension_CleanPoint, &t32);
-    if (c->is_audio || (!FAILED(hr) && t32 != 0))
-        avpkt->flags |= AV_PKT_FLAG_KEY;
-
-    hr = IMFAttributes_GetUINT64(sample, &MFSampleExtension_DecodeTimestamp, &t);
-    if (!FAILED(hr))
-        avpkt->dts = mf_from_mf_time(avctx, t);
-
-    return 0;
-}
-
-static IMFSample *mf_a_avframe_to_sample(AVCodecContext *avctx, const AVFrame *frame)
-{
-    MFContext *c = avctx->priv_data;
-    size_t len;
-    size_t bps;
-    IMFSample *sample;
-
-    bps = av_get_bytes_per_sample(avctx->sample_fmt) * avctx->channels;
-    len = frame->nb_samples * bps;
-
-    sample = ff_create_memory_sample(&c->mf_api, frame->data[0], len, c->in_info.cbAlignment);
-    if (sample)
-        IMFSample_SetSampleDuration(sample, mf_to_mf_time(avctx, frame->nb_samples));
-    return sample;
-}
-
-static IMFSample *mf_v_avframe_to_sample(AVCodecContext *avctx, const AVFrame *frame)
-{
-    MFContext *c = avctx->priv_data;
-    IMFSample *sample;
-    IMFMediaBuffer *buffer;
-    BYTE *data;
-    HRESULT hr;
-    int ret;
-    int size;
-
-    size = av_image_get_buffer_size(avctx->pix_fmt, avctx->width, avctx->height, 1);
-    if (size < 0)
-        return NULL;
-
-    sample = ff_create_memory_sample(&c->mf_api, NULL, size, c->in_info.cbAlignment);
-    if (!sample)
-        return NULL;
-
-    hr = IMFSample_GetBufferByIndex(sample, 0, &buffer);
-    if (FAILED(hr)) {
-        IMFSample_Release(sample);
-        return NULL;
-    }
-
-    hr = IMFMediaBuffer_Lock(buffer, &data, NULL, NULL);
-    if (FAILED(hr)) {
-        IMFMediaBuffer_Release(buffer);
-        IMFSample_Release(sample);
-        return NULL;
-    }
-
-    ret = av_image_copy_to_buffer((uint8_t *)data, size, (void *)frame->data, frame->linesize,
-                                  avctx->pix_fmt, avctx->width, avctx->height, 1);
-    IMFMediaBuffer_SetCurrentLength(buffer, size);
-    IMFMediaBuffer_Unlock(buffer);
-    IMFMediaBuffer_Release(buffer);
-    if (ret < 0) {
-        IMFSample_Release(sample);
-        return NULL;
-    }
-
-    IMFSample_SetSampleDuration(sample, mf_to_mf_time(avctx, frame->pkt_duration));
-
-    return sample;
-}
-
-static IMFSample *mf_avframe_to_sample(AVCodecContext *avctx, const AVFrame *frame)
-{
-    MFContext *c = avctx->priv_data;
-    IMFSample *sample;
-
-    if (c->is_audio) {
-        sample = mf_a_avframe_to_sample(avctx, frame);
-    } else {
-        sample = mf_v_avframe_to_sample(avctx, frame);
-    }
-
-    if (sample)
-        mf_sample_set_pts(avctx, sample, frame->pts);
-
-    return sample;
-}
-
 static int mf_send_sample(AVCodecContext *avctx, IMFSample *sample)
 {
     MFContext *c = avctx->priv_data;
@@ -651,26 +527,6 @@ static int mf_send_sample(AVCodecContext *avctx, IMFSample *sample)
         return AVERROR_EOF;
     }
     return 0;
-}
-
-static int mf_send_frame(AVCodecContext *avctx, const AVFrame *frame)
-{
-    MFContext *c = avctx->priv_data;
-    int ret;
-    IMFSample *sample = NULL;
-    if (frame) {
-        sample = mf_avframe_to_sample(avctx, frame);
-        if (!sample)
-            return AVERROR(ENOMEM);
-        if (c->is_enc && c->is_video && c->codec_api) {
-            if (frame->pict_type == AV_PICTURE_TYPE_I || !c->sample_sent)
-                ICodecAPI_SetValue(c->codec_api, &ff_CODECAPI_AVEncVideoForceKeyFrame, FF_VAL_VT_UI4(1));
-        }
-    }
-    ret = mf_send_sample(avctx, sample);
-    if (sample)
-        IMFSample_Release(sample);
-    return ret;
 }
 
 static int mf_send_packet(AVCodecContext *avctx, const AVPacket *avpkt)
@@ -796,34 +652,6 @@ static int mf_receive_frame(AVCodecContext *avctx, AVFrame *frame)
     }
 }
 
-static int mf_receive_packet(AVCodecContext *avctx, AVPacket *avpkt)
-{
-    MFContext *c = avctx->priv_data;
-    IMFSample *sample;
-    int ret;
-
-    ret = mf_receive_sample(avctx, &sample);
-    if (ret < 0)
-        return ret;
-
-    ret = mf_sample_to_avpacket(avctx, sample, avpkt);
-    IMFSample_Release(sample);
-
-    if (c->send_extradata) {
-        ret = av_packet_add_side_data(avpkt, AV_PKT_DATA_NEW_EXTRADATA,
-                                      c->send_extradata,
-                                      c->send_extradata_size);
-        if (ret < 0) {
-            av_log(avctx, AV_LOG_ERROR, "Failed to add extradata: %i\n", ret);
-            return ret;
-        }
-        c->send_extradata = NULL;
-        c->send_extradata_size = 0;
-    }
-
-    return ret;
-}
-
 static void mf_flush(AVCodecContext *avctx)
 {
     MFContext *c = avctx->priv_data;
@@ -874,7 +702,7 @@ static int mf_deca_input_adjust(AVCodecContext *avctx, IMFMediaType *type)
         int assume_adts = avctx->extradata_size == 0;
         // The first 12 bytes are the remainder of HEAACWAVEINFO.
         // Fortunately all fields can be left 0.
-        size_t ed_size = 12 + (size_t)avctx->extradata_size;
+        int ed_size = 12 + avctx->extradata_size;
         uint8_t *ed = av_mallocz(ed_size);
         if (!ed)
             return AVERROR(ENOMEM);
@@ -1043,9 +871,8 @@ static int mf_deca_output_adjust(AVCodecContext *avctx, IMFMediaType *type)
     int block_align;
     HRESULT hr;
 
-    // Some decoders (wmapro) do not list any output types. I have no clue
-    // what we're supposed to do, and this is surely a MFT bug. Setting an
-    // arbitrary output type helps.
+    // Some decoders (wmapro) do not list any output types. 
+    // Setting an arbitrary output type helps.
     hr = IMFAttributes_GetItem(type, &MF_MT_MAJOR_TYPE, NULL);
     if (!FAILED(hr))
         return 0;
@@ -1112,9 +939,9 @@ static int mf_choose_output_type(AVCodecContext *avctx)
         av_log(avctx, AV_LOG_VERBOSE, "output type %d:\n", n);
         ff_media_type_dump(avctx, type);
 
-        if (c->is_dec && c->is_video) {
+        if (c->is_video) {
             score = mf_decv_output_score(avctx, type);
-        } else if (c->is_dec && c->is_audio) {
+        } else if (c->is_audio) {
             score = mf_deca_output_score(avctx, type);
         }
 
@@ -1141,11 +968,8 @@ static int mf_choose_output_type(AVCodecContext *avctx)
     }
 
     ret = 0;
-    if (c->is_dec && c->is_video) {
-        //ret = mf_decv_output_adjust(avctx, out_type);
-    } else if (c->is_dec && c->is_audio) {
+    if (c->is_audio)
         ret = mf_deca_output_adjust(avctx, out_type);
-    }
 
     if (ret >= 0) {
         av_log(avctx, AV_LOG_VERBOSE, "setting output type:\n");
@@ -1201,9 +1025,9 @@ static int mf_choose_input_type(AVCodecContext *avctx)
         av_log(avctx, AV_LOG_VERBOSE, "input type %d:\n", n);
         ff_media_type_dump(avctx, type);
 
-        if (c->is_dec && c->is_video) {
+        if (c->is_video) {
             score = mf_decv_input_score(avctx, type);
-        } else if (c->is_dec && c->is_audio) {
+        } else if (c->is_audio) {
             score = mf_deca_input_score(avctx, type);
         }
 
@@ -1230,9 +1054,9 @@ static int mf_choose_input_type(AVCodecContext *avctx)
     }
 
     ret = 0;
-    if (c->is_dec && c->is_video) {
+    if (c->is_video) {
         ret = mf_decv_input_adjust(avctx, in_type);
-    } else if (c->is_dec && c->is_audio) {
+    } else if (c->is_audio) {
         ret = mf_deca_input_adjust(avctx, in_type);
     }
 
@@ -1353,7 +1177,7 @@ static int mf_init_hwaccel(AVCodecContext *avctx)
         if (FAILED(hr))
             d3d11_aware = 0;
 
-        if (c->is_dec && c->use_opaque && c->opt_out_samples >= 0) {
+        if (c->use_opaque && c->opt_out_samples >= 0) {
             hr = IMFAttributes_SetUINT32(attrs, &ff_MF_SA_MINIMUM_OUTPUT_SAMPLE_COUNT, c->opt_out_samples);
             if (FAILED(hr))
                 av_log(avctx, AV_LOG_ERROR, "could not set samplecount(%s)\n", ff_hr_str(hr));
@@ -1401,8 +1225,7 @@ static int mf_init_hwaccel(AVCodecContext *avctx)
             av_log(avctx, AV_LOG_ERROR, "failed to set D3D manager: %s\n", ff_hr_str(hr));
             return AVERROR_EXTERNAL;
         }
-    }
-    if (manager && c->is_dec) {
+
         hr = IMFTransform_GetOutputStreamAttributes(c->mft, c->out_stream_id, &attrs);
         if (FAILED(hr)) {
             av_log(avctx, AV_LOG_ERROR, "could not get output stream attributes\n");
@@ -1440,7 +1263,7 @@ static int mf_check_codec_requirements(AVCodecContext *avctx)
 {
     MFContext *c = avctx->priv_data;
 
-    if (c->is_dec && c->is_video && c->codec_api) {
+    if (c->is_video && c->codec_api) {
         LONG w = mf_codecapi_get_int(c->codec_api, &ff_CODECAPI_AVDecVideoMaxCodedWidth, 0);
         LONG h = mf_codecapi_get_int(c->codec_api, &ff_CODECAPI_AVDecVideoMaxCodedHeight, 0);
 
@@ -1463,7 +1286,7 @@ static int mf_check_codec_requirements(AVCodecContext *avctx)
 
 static int mf_unlock_async(AVCodecContext *avctx)
 {
-    // decoding does not neex async event handling
+    // decoding does not need async event handling
     return 0;
 }
 
@@ -1488,25 +1311,24 @@ static void mf_release_decoder(void *opaque, uint8_t *data)
     av_buffer_unref(&dec->device_ref);
 }
 
-static int mf_init(AVCodecContext *avctx)
+static int mf_init_decoder(AVCodecContext *avctx)
 {
     MFContext *c = avctx->priv_data;
     HRESULT hr;
     int ret;
-    MFDecoder *dec;
     const CLSID *subtype = ff_codec_to_mf_subtype(avctx->codec_id);
     int use_hw = 0;
 
-    c->tmp_frame = av_frame_alloc();
-    if (!c->tmp_frame)
+    c->frame = av_frame_alloc();
+    if (!c->frame)
         return AVERROR(ENOMEM);
 
-    c->original_channels = avctx->channels;
-
-    c->is_dec = av_codec_is_decoder(avctx->codec);
-    c->is_enc = !c->is_dec;
     c->is_audio = avctx->codec_type == AVMEDIA_TYPE_AUDIO;
     c->is_video = !c->is_audio;
+    c->original_channels = avctx->channels;
+
+    if (c->is_video && c->opt_use_d3d != AV_MF_NONE)
+        use_hw = 1;
 
     if (!subtype)
         return AVERROR(ENOSYS);
@@ -1516,7 +1338,7 @@ static int mf_init(AVCodecContext *avctx)
     if ((ret = mf_create(avctx, &c->mf_api, &c->mft, avctx->codec, use_hw)) < 0)
         return ret;
 
-    dec = av_mallocz(sizeof(*dec));
+    MFDecoder *dec = av_mallocz(sizeof(*dec));
     if (!dec) {
         ff_free_mf(&c->mf_api, &c->mft);
         return AVERROR(ENOMEM);
@@ -1538,33 +1360,31 @@ static int mf_init(AVCodecContext *avctx)
     if (!FAILED(hr))
         av_log(avctx, AV_LOG_VERBOSE, "MFT supports ICodecAPI.\n");
 
-    if (c->is_dec) {
-        const char *bsf = NULL;
+    const char *bsf = NULL;
 
-        if (avctx->codec->id == AV_CODEC_ID_H264 && avctx->extradata && avctx->extradata[0] == 1)
-            bsf = "h264_mp4toannexb";
+    if (avctx->codec->id == AV_CODEC_ID_H264 && avctx->extradata && avctx->extradata[0] == 1)
+        bsf = "h264_mp4toannexb";
 
-        if (avctx->codec->id == AV_CODEC_ID_HEVC && avctx->extradata && avctx->extradata[0] == 1)
-            bsf = "hevc_mp4toannexb";
+    if (avctx->codec->id == AV_CODEC_ID_HEVC && avctx->extradata && avctx->extradata[0] == 1)
+        bsf = "hevc_mp4toannexb";
 
-        if (bsf) {
-            const AVBitStreamFilter *bsfc = av_bsf_get_by_name(bsf);
-            if (!bsfc) {
-                ret = AVERROR(ENOSYS);
-                goto bsf_done;
-            }
-            if ((ret = av_bsf_alloc(bsfc, &c->bsfc)) < 0)
-                goto bsf_done;
-            if ((ret = avcodec_parameters_from_context(c->bsfc->par_in, avctx)) < 0)
-                goto bsf_done;
-            if ((ret = av_bsf_init(c->bsfc)) < 0)
-                goto bsf_done;
-            ret = 0;
-        bsf_done:
-            if (ret < 0) {
-                av_log(avctx, AV_LOG_ERROR, "Cannot open the %s BSF!\n", bsf);
-                return ret;
-            }
+    if (bsf) {
+        const AVBitStreamFilter *bsfc = av_bsf_get_by_name(bsf);
+        if (!bsfc) {
+            ret = AVERROR(ENOSYS);
+            goto bsf_done;
+        }
+        if ((ret = av_bsf_alloc(bsfc, &c->bsfc)) < 0)
+            goto bsf_done;
+        if ((ret = avcodec_parameters_from_context(c->bsfc->par_in, avctx)) < 0)
+            goto bsf_done;
+        if ((ret = av_bsf_init(c->bsfc)) < 0)
+            goto bsf_done;
+        ret = 0;
+    bsf_done:
+        if (ret < 0) {
+            av_log(avctx, AV_LOG_ERROR, "Cannot open the %s BSF!\n", bsf);
+            return ret;
         }
     }
 
@@ -1600,15 +1420,12 @@ static int mf_init(AVCodecContext *avctx)
         return AVERROR_EXTERNAL;
     }
 
-    c->lavc_init_done = 1;
-
     return 0;
 }
 
 static int mf_close(AVCodecContext *avctx)
 {
     MFContext *c = avctx->priv_data;
-    int uninit_com = c->mft != NULL;
 
     if (c->codec_api)
         ICodecAPI_Release(c->codec_api);
@@ -1616,24 +1433,26 @@ static int mf_close(AVCodecContext *avctx)
     if (c->async_events)
         IMFMediaEventGenerator_Release(c->async_events);
 
+    ff_free_mf(&c->mf_api, &c->mft);
+
     av_bsf_free(&c->bsfc);
 
     av_buffer_unref(&c->frames_ref);
-    av_frame_free(&c->tmp_frame);
+    av_frame_free(&c->frame);
     av_buffer_unref(&c->decoder_ref);
 
-    if (uninit_com)
-        CoUninitialize();
-
-    if (c->is_enc) {
-        av_freep(&avctx->extradata);
-        avctx->extradata_size = 0;
-
-        av_freep(&c->send_extradata);
-        c->send_extradata_size = 0;
-    }
-
     return 0;
+}
+
+static int mf_init(AVCodecContext* avctx)
+{
+    int ret;
+    MFContext* c = avctx->priv_data;
+    if ((ret = mf_init_decoder(avctx)) == 0) {
+        return 0;
+    }
+    mf_close(avctx);
+    return ret;
 }
 
 #define OFFSET(x) offsetof(MFContext, x)

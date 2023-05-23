@@ -94,7 +94,7 @@ static AVRational mf_get_tb(AVCodecContext *avctx)
     return MF_TIMEBASE;
 }
 
-static LONGLONG mf_to_mf_time(AVCodecContext *avctx, int64_t av_pts)
+static LONGLONG mf_scale_to_mf_time(AVCodecContext *avctx, int64_t av_pts)
 {
     if (av_pts == AV_NOPTS_VALUE)
         return MF_INVALID_TIME;
@@ -103,12 +103,12 @@ static LONGLONG mf_to_mf_time(AVCodecContext *avctx, int64_t av_pts)
 
 static void mf_sample_set_pts(AVCodecContext *avctx, IMFSample *sample, int64_t av_pts)
 {
-    LONGLONG stime = mf_to_mf_time(avctx, av_pts);
+    LONGLONG stime = mf_scale_to_mf_time(avctx, av_pts);
     if (stime != MF_INVALID_TIME)
         IMFSample_SetSampleTime(sample, stime);
 }
 
-static int64_t mf_from_mf_time(AVCodecContext *avctx, LONGLONG stime)
+static int64_t mf_scale_to_av_time(AVCodecContext *avctx, LONGLONG stime)
 {
     return av_rescale_q(stime, MF_TIMEBASE, mf_get_tb(avctx));
 }
@@ -119,7 +119,7 @@ static int64_t mf_sample_get_pts(AVCodecContext *avctx, IMFSample *sample)
     HRESULT hr = IMFSample_GetSampleTime(sample, &pts);
     if (FAILED(hr))
         return AV_NOPTS_VALUE;
-    return mf_from_mf_time(avctx, pts);
+    return mf_scale_to_av_time(avctx, pts);
 }
 
 static int mf_enca_output_type_get(AVCodecContext *avctx, IMFMediaType *type)
@@ -256,7 +256,7 @@ static int mf_sample_to_avpacket(AVCodecContext *avctx, IMFSample *sample, AVPac
 
     hr = IMFAttributes_GetUINT64(sample, &MFSampleExtension_DecodeTimestamp, &t);
     if (!FAILED(hr)) {
-        avpkt->dts = mf_from_mf_time(avctx, t);
+        avpkt->dts = mf_scale_to_av_time(avctx, t);
         // At least on Qualcomm's HEVC encoder on SD 835, the output dts
         // starts from the input pts of the first frame, while the output pts
         // is shifted forward. Therefore, shift the output values back so that
@@ -283,7 +283,7 @@ static IMFSample *mf_a_avframe_to_sample(AVCodecContext *avctx, const AVFrame *f
     sample = ff_create_memory_sample(&c->mf_api, frame->data[0], len,
                                      c->in_info.cbAlignment);
     if (sample)
-        IMFSample_SetSampleDuration(sample, mf_to_mf_time(avctx, frame->nb_samples));
+        IMFSample_SetSampleDuration(sample, mf_scale_to_mf_time(avctx, frame->nb_samples));
     return sample;
 }
 
@@ -329,7 +329,7 @@ static IMFSample *mf_v_avframe_to_sample(AVCodecContext *avctx, const AVFrame *f
         return NULL;
     }
 
-    IMFSample_SetSampleDuration(sample, mf_to_mf_time(avctx, frame->pkt_duration));
+    IMFSample_SetSampleDuration(sample, mf_scale_to_mf_time(avctx, frame->pkt_duration));
 
     return sample;
 }
