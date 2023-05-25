@@ -944,13 +944,6 @@ static const AVCodec *find_codec(enum AVCodecID id, int (*x)(const AVCodec *))
             if (p->capabilities & AV_CODEC_CAP_EXPERIMENTAL && !experimental) {
                 experimental = p;
             } else {
-#if defined(_WIN32) && CONFIG_MEDIAFOUNDATION
-                if (p->priv_class && p->priv_class->option &&
-                    stricmp(p->priv_class->option->name, "mfdec") == 0)
-                    return p;
-                else
-                    continue;
-#endif
                 return p;
             }
         }

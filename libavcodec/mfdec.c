@@ -1495,7 +1495,6 @@ MF_DECODER(AUDIO, wmavoice,    WMAVOICE,        NULL);
 
 #define VD AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_DECODING_PARAM
 static const AVOption vdec_opts[] = {
-    { "mfdec",        "", 0, AV_OPT_TYPE_CONST, {.i64 = 0 }, 0, 1, VD},
     // Only used for non-opaque output (otherwise, the AVHWDeviceContext matters)
     {"use_d3d",       "D3D decoding mode", OFFSET(opt_use_d3d), AV_OPT_TYPE_INT, {.i64 = AV_MF_NONE}, 0, INT_MAX, VD, "use_d3d"},
     { "none",         "Disable D3D mode", 0, AV_OPT_TYPE_CONST, {.i64 = AV_MF_NONE}, 0, 0, VD, "use_d3d"},
