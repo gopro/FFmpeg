@@ -311,6 +311,7 @@ External library support:
                            if openssl, gnutls or libtls is not used [no]
   --enable-mediacodec      enable Android MediaCodec support [no]
   --enable-mediafoundation enable decoding/encoding via MediaFoundation [autodetect]
+  --enable-msdecoders      enable replacement of ffmpeg decoders by media foundation variants
   --disable-metal          disable Apple Metal framework [autodetect]
   --enable-libmysofa       enable libmysofa, needed for sofalizer filter [no]
   --enable-openal          enable OpenAL 1.1 capture support [no]
@@ -1761,6 +1762,7 @@ EXTERNAL_AUTODETECT_LIBRARY_LIST="
     libxcb_xfixes
     lzma
     mediafoundation
+    msdecoders
     metal
     schannel
     sdl2
@@ -4041,6 +4043,46 @@ find_filters_extern(){
     sed -n 's/^extern const AVFilter ff_[avfsinkrc]\{2,5\}_\([[:alnum:]_]\{1,\}\);/\1_filter/p' $file
 }
 
+remove_things_if(){
+    things=$1
+    remove_thing=$2
+    keep_thing=$3
+    remove_names=""
+    
+    # Loop through the things items
+    while IFS= read -r item; do
+    # Extract (*) from the item
+    base_name=$(echo "$item" | sed -n "s/\([^ ]*\)$keep_thing/\1\n/p")
+
+    # Add the concatenated string to the set
+    if [ "${base_name}" != "" ]; then
+        remove_names+="${base_name}${remove_thing}"$'\n'
+    fi
+    done <<< "$things"
+
+    ## echo "REMOVE Loop: $remove_names"
+    ## read -p "press a key ..."
+
+    current_things=$things
+
+    # Loop through the things to remove
+    while IFS= read -r item; do
+    if [ "$item" != "" ]; then
+        ## echo "SED remove item- '${item}':"
+
+        last_current=$current_things
+        current_things=$(echo $current_things | sed -n "s/${item}//p")
+
+        if [ "$current_things" = "" ]; then
+        current_things=$last_current
+        fi
+    fi
+    done <<< "$remove_names"
+
+    # Output the resulting items
+    echo "$current_things"
+}
+
 FILTER_LIST=$(find_filters_extern libavfilter/allfilters.c)
 OUTDEV_LIST=$(find_things_extern muxer AVOutputFormat libavdevice/alldevices.c outdev)
 INDEV_LIST=$(find_things_extern demuxer AVInputFormat libavdevice/alldevices.c indev)
@@ -4048,6 +4090,7 @@ MUXER_LIST=$(find_things_extern muxer AVOutputFormat libavformat/allformats.c)
 DEMUXER_LIST=$(find_things_extern demuxer AVInputFormat libavformat/allformats.c)
 ENCODER_LIST=$(find_things_extern encoder FFCodec libavcodec/allcodecs.c)
 DECODER_LIST=$(find_things_extern decoder FFCodec libavcodec/allcodecs.c)
+
 CODEC_LIST="
     $ENCODER_LIST
     $DECODER_LIST
@@ -5657,6 +5700,13 @@ case $target_os in
         fi
         if enabled mediafoundation; then
             add_extralibs -lmfplat -loleaut32
+        fi
+        if enabled msdecoders; then
+            DECODER_LIST=$(remove_things_if "$DECODER_LIST" _decoder _mf_decoder)
+            CODEC_LIST="
+                $ENCODER_LIST
+                $DECODER_LIST
+            "
         fi
         enabled x86_32 && check_ldflags -LARGEADDRESSAWARE
         shlibdir_default="$bindir_default"
