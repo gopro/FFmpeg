@@ -5699,7 +5699,7 @@ case $target_os in
             disable static
         fi
         if enabled mediafoundation; then
-            add_extralibs -lmfplat -loleaut32
+            add_extralibs -lmfplat -loleaut32 -lmfuuid
         fi
         if enabled msdecoders; then
             DECODER_LIST=$(remove_things_if "$DECODER_LIST" _decoder _mf_decoder)

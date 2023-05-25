@@ -1,6 +1,9 @@
 Entries are sorted chronologically from oldest to youngest within each release,
 releases are sorted from youngest to oldest.
 
+version 5.1.3:
+- MediaFoundation decoder wrappers
+
 version 5.1.2:
 - avcodec/dstdec: Check for overflow in build_filter()
 - avformat/spdifdec: Use 64bit to compute bit rate

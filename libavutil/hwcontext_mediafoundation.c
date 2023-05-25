@@ -21,8 +21,6 @@
 #define _WIN32_WINNT 0x0602
 #endif
 
-#pragma comment(lib, "mfuuid.lib")
-
 #include <windows.h>
 #include <initguid.h>
 #include <wmcodecdsp.h>
@@ -32,7 +30,7 @@
 #include <mfidl.h>
 #include <uuids.h>
 #include <codecapi.h>
-#include <d3d11.h>
+#include <d3d11_4.h>
 #include <d3d9.h>
 #include <dxva2api.h>
 
@@ -49,6 +47,7 @@
 #include "mem.h"
 #include "pixfmt.h"
 #include "pixdesc.h"
+#include "compat/w32dlfcn.h"
 
 typedef struct MFDeviceContext {
     HANDLE d3d11_dll;
@@ -58,36 +57,66 @@ typedef struct MFDeviceContext {
 } MFDeviceContext;
 
 typedef IDirect3D9* WINAPI pDirect3DCreate9(UINT);
+typedef HRESULT WINAPI pDirect3DCreate9Ex(UINT, IDirect3D9Ex**);
 typedef HRESULT WINAPI pCreateDeviceManager9(UINT *, IDirect3DDeviceManager9 **);
+
+#define FF_D3DCREATE_FLAGS (D3DCREATE_SOFTWARE_VERTEXPROCESSING | \
+                            D3DCREATE_MULTITHREADED | \
+                            D3DCREATE_FPU_PRESERVE)
+
+static const D3DPRESENT_PARAMETERS d3d_present_params = {
+    .Windowed = TRUE,
+    .BackBufferWidth = 640,
+    .BackBufferHeight = 480,
+    .BackBufferCount = 0,
+    .SwapEffect = D3DSWAPEFFECT_DISCARD,
+    .Flags = D3DPRESENTFLAG_VIDEO,
+};
 
 static void mf_uninit_d3d(AVHWDeviceContext *ctx)
 {
     AVMFDeviceContext *hwctx = ctx->hwctx;
     MFDeviceContext *priv = ctx->internal->priv;
 
-    if (hwctx->d3d11_manager)
+    if (hwctx->d3d11_manager) {
         IMFDXGIDeviceManager_Release(hwctx->d3d11_manager);
-    hwctx->d3d11_manager = NULL;
+        hwctx->d3d11_manager = NULL;
+    }
 
-    if (priv->d3d11_dll)
-        FreeLibrary(priv->d3d11_dll);
-    priv->d3d11_dll = NULL;
-
-    if (hwctx->d3d9_manager)
+    if (hwctx->d3d9_manager) {
         IDirect3DDeviceManager9_Release(hwctx->d3d9_manager);
-    hwctx->d3d9_manager = NULL;
+        hwctx->d3d9_manager = NULL;
+    }
 
-    if (priv->d3d9)
+    if (hwctx->init_d3d9_device) {
+        IDirect3DDevice9_Release(hwctx->init_d3d9_device);
+        hwctx->init_d3d9_device = NULL;
+    }
+
+    if (hwctx->init_d3d11_device) {
+        ID3D11Device_Release(hwctx->init_d3d11_device);
+        hwctx->init_d3d11_device = NULL;
+    }
+
+    if (priv->d3d9) {
         IDirect3D9_Release(priv->d3d9);
-    priv->d3d9 = NULL;
+        priv->d3d9 = NULL;
+    }
 
-    if (priv->d3d9_dll)
-        FreeLibrary(priv->d3d9_dll);
-    priv->d3d9_dll = NULL;
+    if (priv->d3d9_dll) {
+        dlclose(priv->d3d9_dll);
+        priv->d3d9_dll = NULL;
+    }
 
-    if (priv->dxva2_dll)
-        FreeLibrary(priv->dxva2_dll);
-    priv->dxva2_dll = NULL;
+    if (priv->d3d11_dll) {
+        dlclose(priv->d3d11_dll);
+        priv->d3d11_dll = NULL;
+    }
+
+    if (priv->dxva2_dll) {
+        dlclose(priv->dxva2_dll);
+        priv->dxva2_dll = NULL;
+    }
 }
 
 static int mf_create_d3d11_device(AVHWDeviceContext *ctx, int loglevel)
@@ -97,7 +126,7 @@ static int mf_create_d3d11_device(AVHWDeviceContext *ctx, int loglevel)
     HRESULT hr;
     UINT token;
     ID3D11Device *d3d11_device = NULL;
-    ID3D10Multithread *multithread;
+    ID3D11Multithread *multithread;
     HRESULT (WINAPI *pD3D11CreateDevice)(
     _In_opt_        IDXGIAdapter        *pAdapter,
                     D3D_DRIVER_TYPE     DriverType,
@@ -120,11 +149,11 @@ static int mf_create_d3d11_device(AVHWDeviceContext *ctx, int loglevel)
         d3d11_device = hwctx->init_d3d11_device;
         ID3D11Device_AddRef(d3d11_device);
     } else {
-        priv->d3d11_dll = LoadLibraryW(L"D3D11.dll");
+        priv->d3d11_dll = dlopen("D3D11.dll", 0);
         if (!priv->d3d11_dll)
             return AVERROR_EXTERNAL;
 
-        pD3D11CreateDevice = (void *)GetProcAddress(priv->d3d11_dll, "D3D11CreateDevice");
+        pD3D11CreateDevice = (void *)dlsym(priv->d3d11_dll, "D3D11CreateDevice");
         if (!pD3D11CreateDevice)
             return AVERROR_EXTERNAL;
 
@@ -143,20 +172,20 @@ static int mf_create_d3d11_device(AVHWDeviceContext *ctx, int loglevel)
             goto error;
         }
 
-        hr = IMFMediaBuffer_QueryInterface(d3d11_device, &IID_ID3D10Multithread, (void **)&multithread);
+        hr = IMFMediaBuffer_QueryInterface(d3d11_device, &IID_ID3D11Multithread, (void **)&multithread);
         if (FAILED(hr)) {
-            av_log(ctx, loglevel, "could not get ID3D10Multithread\n");
+            av_log(ctx, loglevel, "could not get ID3D11Multithread\n");
             goto error;
         }
 
-        hr = ID3D10Multithread_SetMultithreadProtected(multithread, TRUE);
+        hr = ID3D11Multithread_SetMultithreadProtected(multithread, TRUE);
         if (FAILED(hr)) {
-            av_log(ctx, loglevel, "failed to call ID3D10Multithread::SetMultithreadProtected\n");
-            ID3D10Multithread_Release(multithread);
+            av_log(ctx, loglevel, "failed to call ID3D11Multithread::SetMultithreadProtected\n");
+            ID3D11Multithread_Release(multithread);
             goto error;
         }
 
-        ID3D10Multithread_Release(multithread);
+        ID3D11Multithread_Release(multithread);
     }
 
     // If this code is enabled, we already link against this DLL.
@@ -166,7 +195,7 @@ static int mf_create_d3d11_device(AVHWDeviceContext *ctx, int loglevel)
         av_log(ctx, loglevel, "mfplat.dll not present\n");
         goto error;
     }
-    pMFCreateDXGIDeviceManager = (void *)GetProcAddress(mfplat_dll, "MFCreateDXGIDeviceManager");
+    pMFCreateDXGIDeviceManager = (void *)dlsym(mfplat_dll, "MFCreateDXGIDeviceManager");
     if (!pMFCreateDXGIDeviceManager) {
         av_log(ctx, loglevel, "MFCreateDXGIDeviceManager not found\n");
         goto error;
@@ -199,59 +228,96 @@ static int mf_create_d3d9_device(AVHWDeviceContext *ctx, int loglevel)
     AVMFDeviceContext *hwctx = ctx->hwctx;
     MFDeviceContext *priv = ctx->internal->priv;
     pDirect3DCreate9      *createD3D = NULL;
+    pDirect3DCreate9Ex    *createD3DEx = NULL;;
     pCreateDeviceManager9 *createDeviceManager = NULL;
+    IDirect3D9Ex          *d3d9ex = NULL;
+    IDirect3DDevice9Ex    *d3d9deviceEx = NULL;
     IDirect3DDevice9      *d3d9device = NULL;
     HRESULT hr;
-    D3DPRESENT_PARAMETERS d3dpp = {0};
+    D3DPRESENT_PARAMETERS d3dpp = d3d_present_params;
     D3DDISPLAYMODE        d3ddm;
+    BOOL                  fallbackto_d3d9 = TRUE;
     unsigned resetToken = 0;
 
     if (hwctx->init_d3d9_device) {
         d3d9device = hwctx->init_d3d9_device;
         IDirect3DDevice9_AddRef(d3d9device);
     } else {
-        priv->d3d9_dll = LoadLibraryW(L"d3d9.dll");
+        priv->d3d9_dll = dlopen("d3d9.dll", 0);
         if (!priv->d3d9_dll) {
             av_log(ctx, loglevel, "Failed to load D3D9 library\n");
             goto fail;
         }
 
-        createD3D = (pDirect3DCreate9 *)GetProcAddress(priv->d3d9_dll, "Direct3DCreate9");
-        if (!createD3D) {
-            av_log(ctx, loglevel, "Failed to locate Direct3DCreate9\n");
-            goto fail;
+        // try using Direct3DCreate9Ex first
+        createD3DEx = (pDirect3DCreate9Ex*)dlsym(priv->d3d9_dll, "Direct3DCreate9Ex");
+        if (createD3DEx) {
+            hr = createD3DEx(D3D_SDK_VERSION, &d3d9ex);
+            if (FAILED(hr) || d3d9ex == NULL) {
+                av_log(ctx, loglevel, "Failed to locate Direct3DCreate9Ex\n");
+            } else {
+                D3DDISPLAYMODEEX modeex = { 0 };
+                modeex.Size = sizeof(D3DDISPLAYMODEEX);
+
+                hr = IDirect3D9Ex_GetAdapterDisplayModeEx(d3d9ex, hwctx->init_d3d9_adapter, &modeex, NULL);
+                if (FAILED(hr)) {
+                    av_log(ctx, loglevel, "Failed to get adapter display mode ex\n");
+                } else {
+                    d3dpp.BackBufferFormat = modeex.Format;
+
+                    hr = IDirect3D9Ex_CreateDeviceEx(d3d9ex, hwctx->init_d3d9_adapter, D3DDEVTYPE_HAL, GetDesktopWindow(),
+                        FF_D3DCREATE_FLAGS,
+                        &d3dpp, NULL, &d3d9deviceEx);
+
+                    if (FAILED(hr)) {
+                        av_log(ctx, loglevel, "Failed to create D3D9Ex device\n");
+                    } else {
+                        av_log(ctx, AV_LOG_VERBOSE, "Using D3D9Ex device.\n");
+                        priv->d3d9 = (IDirect3D9*)d3d9ex;
+                        hwctx->init_d3d9_device = (IDirect3DDevice9 *)d3d9deviceEx;
+                        fallbackto_d3d9 = FALSE;
+                    }
+                }
+            }
         }
 
-        priv->d3d9 = createD3D(D3D_SDK_VERSION);
-        if (!priv->d3d9) {
-            av_log(ctx, loglevel, "Failed to create IDirect3D object\n");
-            goto fail;
-        }
+        // fallback to using Direct2DCreate9 
+        if (fallbackto_d3d9) {
+            createD3D = (pDirect3DCreate9*)dlsym(priv->d3d9_dll, "Direct3DCreate9");
+            if (!createD3D) {
+                av_log(ctx, loglevel, "Failed to locate Direct3DCreate9\n");
+                goto fail;
+            }
 
-        IDirect3D9_GetAdapterDisplayMode(priv->d3d9, hwctx->init_d3d9_adapter, &d3ddm);
-        d3dpp.Windowed         = TRUE;
-        d3dpp.BackBufferWidth  = 640;
-        d3dpp.BackBufferHeight = 480;
-        d3dpp.BackBufferCount  = 0;
-        d3dpp.BackBufferFormat = d3ddm.Format;
-        d3dpp.SwapEffect       = D3DSWAPEFFECT_DISCARD;
-        d3dpp.Flags            = D3DPRESENTFLAG_VIDEO;
+            priv->d3d9 = createD3D(D3D_SDK_VERSION);
+            if (!priv->d3d9) {
+                av_log(ctx, loglevel, "Failed to create IDirect3D object\n");
+                goto fail;
+            }
 
-        hr = IDirect3D9_CreateDevice(priv->d3d9, hwctx->init_d3d9_adapter, D3DDEVTYPE_HAL, GetDesktopWindow(),
-                                    D3DCREATE_SOFTWARE_VERTEXPROCESSING | D3DCREATE_MULTITHREADED | D3DCREATE_FPU_PRESERVE,
-                                    &d3dpp, &d3d9device);
-        if (FAILED(hr)) {
-            av_log(ctx, loglevel, "Failed to create Direct3D device\n");
-            goto fail;
+            IDirect3D9_GetAdapterDisplayMode(priv->d3d9, hwctx->init_d3d9_adapter, &d3ddm);
+
+            d3dpp.BackBufferFormat = d3ddm.Format;
+
+            hr = IDirect3D9_CreateDevice(priv->d3d9, hwctx->init_d3d9_adapter, D3DDEVTYPE_HAL, GetDesktopWindow(),
+                FF_D3DCREATE_FLAGS,
+                &d3dpp, &d3d9device);
+            if (FAILED(hr)) {
+                av_log(ctx, loglevel, "Failed to create Direct3D device\n");
+                goto fail;
+            }
+
+            hwctx->init_d3d9_device = d3d9device;
         }
     }
 
-    priv->dxva2_dll = LoadLibraryW(L"dxva2.dll");
+    priv->dxva2_dll = dlopen("dxva2.dll", 0);
     if (!priv->dxva2_dll) {
         av_log(ctx, loglevel, "Failed to load DXVA2 library\n");
         goto fail;
     }
-        createDeviceManager = (pCreateDeviceManager9 *)GetProcAddress(priv->dxva2_dll, "DXVA2CreateDirect3DDeviceManager9");
+
+    createDeviceManager = (pCreateDeviceManager9 *)dlsym(priv->dxva2_dll, "DXVA2CreateDirect3DDeviceManager9");
     if (!createDeviceManager) {
         av_log(ctx, loglevel, "Failed to locate DXVA2CreateDirect3DDeviceManager9\n");
         goto fail;
@@ -269,12 +335,17 @@ static int mf_create_d3d9_device(AVHWDeviceContext *ctx, int loglevel)
         goto fail;
     }
 
-    IDirect3DDevice9_Release(d3d9device);
     return 0;
+
 fail:
     if (d3d9device)
         IDirect3DDevice9_Release(d3d9device);
-    mf_uninit_d3d(ctx);
+    if (d3d9deviceEx)
+        IDirect3DDevice9Ex_Release(d3d9deviceEx);
+    if (d3d9ex)
+        IDirect3D9Ex_Release(d3d9ex);
+     
+     mf_uninit_d3d(ctx);
     return AVERROR_EXTERNAL;
 }
 
@@ -313,15 +384,7 @@ static int mf_device_init(AVHWDeviceContext *ctx)
 
 static void mf_device_uninit(AVHWDeviceContext *ctx)
 {
-    AVMFDeviceContext *hwctx = ctx->hwctx;
-
     mf_uninit_d3d(ctx);
-
-    if (hwctx->init_d3d9_device)
-        IDirect3DDevice9_Release(hwctx->init_d3d9_device);
-
-    if (hwctx->init_d3d11_device)
-        ID3D11Device_Release(hwctx->init_d3d11_device);
 }
 
 static int mf_transfer_get_formats(AVHWFramesContext *ctx,

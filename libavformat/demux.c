@@ -74,20 +74,15 @@ static const AVCodec *find_probe_decoder(AVFormatContext *s, const AVStream *st,
 {
     const AVCodec *codec;
 
-#if defined(_WIN32)
-#if CONFIG_H264_MF_DECODER
-    /* Other parts of the code assume this decoder to be used for h264,
-     * so force it if possible. */
+#if defined(_WIN32) && CONFIG_H264_MF_DECODER
+    /*  force MF variant for decoding on Windows */
     if (codec_id == AV_CODEC_ID_H264)
         return avcodec_find_decoder_by_name("h264_mf");
-#endif
-#else
-#if CONFIG_H264_DECODER
+#elif CONFIG_H264_DECODER
     /* Other parts of the code assume this decoder to be used for h264,
      * so force it if possible. */
     if (codec_id == AV_CODEC_ID_H264)
         return avcodec_find_decoder_by_name("h264");
-#endif
 #endif
 
     codec = ff_find_decoder(s, st, codec_id);
