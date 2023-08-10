@@ -120,6 +120,10 @@ static int dxva_get_decoder_configuration(AVCodecContext *avctx,
         UINT ConfigBitstreamRaw;
         GUID guidConfigBitstreamEncryption;
 
+#if CONFIG_D3D12VA
+    if (avctx->pix_fmt == AV_PIX_FMT_D3D12)
+        return (intptr_t)frame->data[1];
+#endif
 #if CONFIG_D3D11VA
         if (sctx->pix_fmt == AV_PIX_FMT_D3D11) {
             D3D11_VIDEO_DECODER_CONFIG *cfg = &((D3D11_VIDEO_DECODER_CONFIG *)cfg_list)[i];
@@ -1055,4 +1059,24 @@ int ff_dxva2_is_d3d11(const AVCodecContext *avctx)
                avctx->pix_fmt == AV_PIX_FMT_D3D11;
     else
         return 0;
+}
+
+unsigned *ff_dxva2_get_report_id(const AVCodecContext *avctx, AVDXVAContext *ctx)
+{
+    unsigned *report_id = NULL;
+
+#if CONFIG_D3D12VA
+    if (avctx->pix_fmt == AV_PIX_FMT_D3D12)
+        report_id = &ctx->d3d12va.report_id;
+#endif
+#if CONFIG_D3D11VA
+    if (ff_dxva2_is_d3d11(avctx))
+        report_id = &ctx->d3d11va.report_id;
+#endif
+#if CONFIG_DXVA2
+    if (avctx->pix_fmt == AV_PIX_FMT_DXVA2_VLD)
+        report_id = &ctx->dxva2.report_id;
+#endif
+
+    return report_id;
 }
