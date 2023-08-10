@@ -401,6 +401,7 @@ static enum AVPixelFormat get_format(HEVCContext *s, const HEVCSPS *sps)
 {
 #define HWACCEL_MAX (CONFIG_HEVC_DXVA2_HWACCEL + \
                      CONFIG_HEVC_D3D11VA_HWACCEL * 2 + \
+                     CONFIG_HEVC_D3D12VA_HWACCEL + \
                      CONFIG_HEVC_NVDEC_HWACCEL + \
                      CONFIG_HEVC_VAAPI_HWACCEL + \
                      CONFIG_HEVC_VIDEOTOOLBOX_HWACCEL + \
@@ -416,6 +417,9 @@ static enum AVPixelFormat get_format(HEVCContext *s, const HEVCSPS *sps)
 #if CONFIG_HEVC_D3D11VA_HWACCEL
         *fmt++ = AV_PIX_FMT_D3D11VA_VLD;
         *fmt++ = AV_PIX_FMT_D3D11;
+#endif
+#if CONFIG_HEVC_D3D12VA_HWACCEL
+        *fmt++ = AV_PIX_FMT_D3D12;
 #endif
 #if CONFIG_HEVC_VAAPI_HWACCEL
         *fmt++ = AV_PIX_FMT_VAAPI;
@@ -437,6 +441,9 @@ static enum AVPixelFormat get_format(HEVCContext *s, const HEVCSPS *sps)
 #if CONFIG_HEVC_D3D11VA_HWACCEL
         *fmt++ = AV_PIX_FMT_D3D11VA_VLD;
         *fmt++ = AV_PIX_FMT_D3D11;
+#endif
+#if CONFIG_HEVC_D3D12VA_HWACCEL
+        *fmt++ = AV_PIX_FMT_D3D12;
 #endif
 #if CONFIG_HEVC_VAAPI_HWACCEL
         *fmt++ = AV_PIX_FMT_VAAPI;
@@ -3893,6 +3900,9 @@ const FFCodec ff_hevc_decoder = {
 #endif
 #if CONFIG_HEVC_D3D11VA2_HWACCEL
                                HWACCEL_D3D11VA2(hevc),
+#endif
+#if CONFIG_HEVC_D3D12VA_HWACCEL
+                               HWACCEL_D3D12VA(hevc),
 #endif
 #if CONFIG_HEVC_NVDEC_HWACCEL
                                HWACCEL_NVDEC(hevc),
