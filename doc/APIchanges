@@ -14,6 +14,13 @@ libavutil:     2021-04-27
 
 API changes, most recent first:
 
+2023-05-xx - xxxxxxxxxx - lavu 58.7.100 - pixfmt.h hwcontext.h hwcontext_d3d12va.h
+  Add AV_HWDEVICE_TYPE_D3D12VA and AV_PIX_FMT_D3D12.
+  Add AVD3D12VADeviceContext, AVD3D12VASyncContext, AVD3D12FrameDescriptor,
+  and AVD3D12VAFramesContext.
+  Add av_d3d12va_map_sw_to_hw_format, av_d3d12va_create_sync_context,
+  av_d3d12va_release_sync_context, av_d3d12va_wait_idle, and av_d3d12va_wait_queue_idle.
+
 -------- 8< --------- FFmpeg 5.1 was cut here -------- 8< ---------
 
 2022-06-12 - 7cae3d8b76 - lavf 59.25.100 - avio.h
