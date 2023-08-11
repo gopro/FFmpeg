@@ -1,6 +1,8 @@
 Entries are sorted chronologically from oldest to youngest within each release,
 releases are sorted from youngest to oldest.
 
+- D3D12VA hardware accelerated H264, HEVC, VP9, AV1, MPEG-2 and VC1 decoding
+
 version 5.1.3:
 - avcodec/tests/snowenc: Fix 2nd test
 - avcodec/tests/snowenc: return a failure if DWT/IDWT mismatches
