@@ -120,10 +120,6 @@ static int dxva_get_decoder_configuration(AVCodecContext *avctx,
         UINT ConfigBitstreamRaw;
         GUID guidConfigBitstreamEncryption;
 
-#if CONFIG_D3D12VA
-    if (avctx->pix_fmt == AV_PIX_FMT_D3D12)
-        return (intptr_t)frame->data[1];
-#endif
 #if CONFIG_D3D11VA
         if (sctx->pix_fmt == AV_PIX_FMT_D3D11) {
             D3D11_VIDEO_DECODER_CONFIG *cfg = &((D3D11_VIDEO_DECODER_CONFIG *)cfg_list)[i];
@@ -778,6 +774,10 @@ unsigned ff_dxva2_get_surface_index(const AVCodecContext *avctx,
     void *surface = get_surface(avctx, frame);
     unsigned i;
 
+#if CONFIG_D3D12VA
+    if (avctx->pix_fmt == AV_PIX_FMT_D3D12)
+       return (intptr_t)frame->data[1];
+#endif
 #if CONFIG_D3D11VA
     if (avctx->pix_fmt == AV_PIX_FMT_D3D11)
         return (intptr_t)frame->data[1];
