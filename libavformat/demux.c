@@ -74,11 +74,33 @@ static const AVCodec *find_probe_decoder(AVFormatContext *s, const AVStream *st,
 {
     const AVCodec *codec;
 
+#if defined(_WIN32) && CONFIG_MSDECODERS
+    /*  force MF variants for decoding on Windows */
+    #if CONFIG_H264_MF_DECODER
+    if (codec_id == AV_CODEC_ID_H264)
+        return avcodec_find_decoder_by_name("h264_mf");
+    #endif
+    #if CONFIG_HEVC_MF_DECODER
+    if (codec_id == AV_CODEC_ID_HEVC)
+        return avcodec_find_decoder_by_name("hevc_mf");
+    #endif
+    #if CONFIG_AAC_MF_DECODER
+    if (codec_id == AV_CODEC_ID_AAC)
+        return avcodec_find_decoder_by_name("aac_mf");
+    #endif
+#endif
+
 #if CONFIG_H264_DECODER
     /* Other parts of the code assume this decoder to be used for h264,
      * so force it if possible. */
     if (codec_id == AV_CODEC_ID_H264)
         return avcodec_find_decoder_by_name("h264");
+#endif
+#if CONFIG_HEVC_DECODER
+    /* Other parts of the code assume this decoder to be used for hevc,
+     * so force it if possible. */
+    if (codec_id == AV_CODEC_ID_HEVC)
+        return avcodec_find_decoder_by_name("hevc");
 #endif
 
     codec = ff_find_decoder(s, st, codec_id);
@@ -718,7 +740,7 @@ static int has_decode_delay_been_guessed(AVStream *st)
     if (st->codecpar->codec_id != AV_CODEC_ID_H264) return 1;
     if (!sti->info) // if we have left find_stream_info then nb_decoded_frames won't increase anymore for stream copy
         return 1;
-#if CONFIG_H264_DECODER
+#if CONFIG_H264_DECODER && CONFIG_H264_MF_DECODER == 0
     if (sti->avctx->has_b_frames &&
         avpriv_h264_has_num_reorder_frames(sti->avctx) == sti->avctx->has_b_frames)
         return 1;
