@@ -24,6 +24,7 @@
 
 #include "mf_utils.h"
 #include "libavutil/pixdesc.h"
+#include "compat/w32dlfcn.h"
 
 HRESULT ff_MFGetAttributeSize(IMFAttributes *pattr, REFGUID guid,
                               UINT32 *pw, UINT32 *ph)
@@ -73,7 +74,7 @@ char *ff_hr_str_buf(char *buf, size_t size, HRESULT hr)
 // If fill_data!=NULL, initialize the buffer and set the length. (This is a
 // subtle but important difference: some decoders want CurrentLength==0 on
 // provided output buffers.)
-IMFSample *ff_create_memory_sample(MFFunctions *f,void *fill_data, size_t size,
+IMFSample *ff_create_memory_sample(MFFunctions *f, void *fill_data, size_t size,
                                    size_t align)
 {
     HRESULT hr;
@@ -86,7 +87,7 @@ IMFSample *ff_create_memory_sample(MFFunctions *f,void *fill_data, size_t size,
 
     align = FFMAX(align, 16); // 16 is "recommended", even if not required
 
-    hr = f->MFCreateAlignedMemoryBuffer(size, align - 1, &buffer);
+    hr = f->MFCreateAlignedMemoryBuffer((DWORD)size, (DWORD)(align-1), &buffer);
     if (FAILED(hr))
         return NULL;
 
@@ -101,7 +102,7 @@ IMFSample *ff_create_memory_sample(MFFunctions *f,void *fill_data, size_t size,
         }
         memcpy(tmp, fill_data, size);
 
-        IMFMediaBuffer_SetCurrentLength(buffer, size);
+        IMFMediaBuffer_SetCurrentLength(buffer, (DWORD)size);
         IMFMediaBuffer_Unlock(buffer);
     }
 
@@ -229,9 +230,6 @@ static struct GUID_Entry guid_names[] = {
     GUID_ENTRY(ff_MF_SA_D3D11_SHARED_WITHOUT_MUTEX),
     GUID_ENTRY(MF_MT_SUBTYPE),
     GUID_ENTRY(MF_MT_MAJOR_TYPE),
-    GUID_ENTRY(MF_MT_AUDIO_SAMPLES_PER_SECOND),
-    GUID_ENTRY(MF_MT_AUDIO_NUM_CHANNELS),
-    GUID_ENTRY(MF_MT_AUDIO_CHANNEL_MASK),
     GUID_ENTRY(MF_MT_FRAME_SIZE),
     GUID_ENTRY(MF_MT_INTERLACE_MODE),
     GUID_ENTRY(MF_MT_USER_DATA),
@@ -242,8 +240,8 @@ static struct GUID_Entry guid_names[] = {
     GUID_ENTRY(MFAudioFormat_Float),
     GUID_ENTRY(MFVideoFormat_H264),
     GUID_ENTRY(MFVideoFormat_H264_ES),
-    GUID_ENTRY(ff_MFVideoFormat_HEVC),
-    GUID_ENTRY(ff_MFVideoFormat_HEVC_ES),
+    GUID_ENTRY(MFVideoFormat_HEVC),
+    GUID_ENTRY(MFVideoFormat_HEVC_ES),
     GUID_ENTRY(MFVideoFormat_MPEG2),
     GUID_ENTRY(MFVideoFormat_MP43),
     GUID_ENTRY(MFVideoFormat_MP4V),
@@ -256,10 +254,12 @@ static struct GUID_Entry guid_names[] = {
     GUID_ENTRY(MFAudioFormat_AAC),
     GUID_ENTRY(MFAudioFormat_MP3),
     GUID_ENTRY(MFAudioFormat_MSP1),
+    GUID_ENTRY(ff_MFAudioFormat_MSAUDIO1),
     GUID_ENTRY(MFAudioFormat_WMAudioV8),
     GUID_ENTRY(MFAudioFormat_WMAudioV9),
     GUID_ENTRY(MFAudioFormat_WMAudio_Lossless),
     GUID_ENTRY(MF_MT_ALL_SAMPLES_INDEPENDENT),
+    GUID_ENTRY(MF_MT_AM_FORMAT_TYPE),
     GUID_ENTRY(MF_MT_COMPRESSED),
     GUID_ENTRY(MF_MT_FIXED_SIZE_SAMPLES),
     GUID_ENTRY(MF_MT_SAMPLE_SIZE),
@@ -508,12 +508,76 @@ const CLSID *ff_codec_to_mf_subtype(enum AVCodecID codec)
 {
     switch (codec) {
     case AV_CODEC_ID_H264:              return &MFVideoFormat_H264;
-    case AV_CODEC_ID_HEVC:              return &ff_MFVideoFormat_HEVC;
+    case AV_CODEC_ID_HEVC:              return &MFVideoFormat_HEVC;
+    case AV_CODEC_ID_MJPEG:             return &MFVideoFormat_MJPG;
+    case AV_CODEC_ID_MPEG2VIDEO:        return &MFVideoFormat_MPEG2;
+    case AV_CODEC_ID_MPEG4:             return &MFVideoFormat_MP4V;
+    case AV_CODEC_ID_MSMPEG4V1:
+    case AV_CODEC_ID_MSMPEG4V2:         return &ff_MFVideoFormat_MP42;
+    case AV_CODEC_ID_MSMPEG4V3:         return &MFVideoFormat_MP43;
+    case AV_CODEC_ID_WMV1:              return &MFVideoFormat_WMV1;
+    case AV_CODEC_ID_WMV2:              return &MFVideoFormat_WMV2;
+    case AV_CODEC_ID_WMV3:              return &MFVideoFormat_WMV3;
+    case AV_CODEC_ID_VC1:               return &MFVideoFormat_WVC1;
     case AV_CODEC_ID_AC3:               return &MFAudioFormat_Dolby_AC3;
+    case AV_CODEC_ID_EAC3:              return &MFAudioFormat_Dolby_DDPlus;
     case AV_CODEC_ID_AAC:               return &MFAudioFormat_AAC;
+    case AV_CODEC_ID_MP1:               return &MFAudioFormat_MPEG;
+    case AV_CODEC_ID_MP2:               return &MFAudioFormat_MPEG;
     case AV_CODEC_ID_MP3:               return &MFAudioFormat_MP3;
+    case AV_CODEC_ID_WMAVOICE:          return &MFAudioFormat_MSP1;
+    case AV_CODEC_ID_WMAV1:             return &ff_MFAudioFormat_MSAUDIO1;
+    case AV_CODEC_ID_WMAV2:             return &MFAudioFormat_WMAudioV8;
+    case AV_CODEC_ID_WMAPRO:            return &MFAudioFormat_WMAudioV9;
+    case AV_CODEC_ID_WMALOSSLESS:       return &MFAudioFormat_WMAudio_Lossless;
     default:                            return NULL;
     }
+}
+
+#if !HAVE_UWP
+#define LOAD_MF_FUNCTION(log, functions, func_name) \
+    functions->func_name = (void *)dlsym(functions->library, #func_name); \
+    if (!functions->func_name) { \
+        av_log(log, AV_LOG_ERROR, "DLL mfplat.dll failed to find function "\
+           #func_name "\n"); \
+        return AVERROR_UNKNOWN; \
+    }
+#else
+// In UWP (which lacks LoadLibrary), just link directly against
+// the functions - this requires building with new/complete enough
+// import libraries.
+#define LOAD_MF_FUNCTION(log, functions, func_name) \
+    functions->func_name = func_name; \
+    if (!functions->func_name) { \
+        av_log(log, AV_LOG_ERROR, "Failed to find function " #func_name \
+               "\n"); \
+        return AVERROR_UNKNOWN; \
+    }
+#endif
+
+// Windows N editions does not provide MediaFoundation by default.
+// So to avoid DLL loading error, MediaFoundation is dynamically loaded except
+// on UWP build since LoadLibrary is not available on it.
+int ff_mf_load_library(AVCodecContext* avctx, MFFunctions* functions)
+{
+#if !HAVE_UWP
+    functions->library = dlopen("mfplat.dll", 0);
+
+    if (!functions->library) {
+        av_log(avctx, AV_LOG_ERROR, "DLL mfplat.dll failed to open\n");
+        return AVERROR_UNKNOWN;
+    }
+#endif
+
+    LOAD_MF_FUNCTION(avctx, functions, MFStartup);
+    LOAD_MF_FUNCTION(avctx, functions, MFShutdown);
+    LOAD_MF_FUNCTION(avctx, functions, MFCreateAlignedMemoryBuffer);
+    LOAD_MF_FUNCTION(avctx, functions, MFCreateSample);
+    LOAD_MF_FUNCTION(avctx, functions, MFCreateMediaType);
+    // MFTEnumEx is missing in Windows Vista's mfplat.dll.
+    LOAD_MF_FUNCTION(avctx, functions, MFTEnumEx);
+
+    return 0;
 }
 
 static int init_com_mf(void *log, MFFunctions *f)
@@ -640,10 +704,48 @@ error_uninit_mf:
     return AVERROR(ENOSYS);
 }
 
-void ff_free_mf(MFFunctions *f, IMFTransform **mft)
+void ff_free_mf(MFFunctions* f)
 {
-    if (*mft)
-        IMFTransform_Release(*mft);
-    *mft = NULL;
     uninit_com_mf(f);
+
+#if !HAVE_UWP
+    if (f->library) {
+        dlclose(f->library);
+        f->library = NULL;
+    }
+#endif
+}
+
+int mf_create(void* log, MFFunctions* mf_api, IMFTransform** mft, const AVCodec* codec, int use_hw)
+{
+    int is_audio = codec->type == AVMEDIA_TYPE_AUDIO;
+    int is_dec = av_codec_is_decoder(codec);
+    const CLSID* subtype = ff_codec_to_mf_subtype(codec->id);
+    MFT_REGISTER_TYPE_INFO reg = { 0 };
+    GUID category;
+    int ret;
+
+    *mft = NULL;
+
+    if (!subtype)
+        return AVERROR(ENOSYS);
+
+    reg.guidSubtype = *subtype;
+
+    ff_mf_load_library(log, mf_api);
+
+    if (is_audio) {
+        reg.guidMajorType = MFMediaType_Audio;
+        category = is_dec ? MFT_CATEGORY_AUDIO_DECODER : MFT_CATEGORY_AUDIO_ENCODER;
+    }
+    else {
+        reg.guidMajorType = MFMediaType_Video;
+        category = is_dec ? MFT_CATEGORY_VIDEO_DECODER : MFT_CATEGORY_VIDEO_ENCODER;
+    }
+
+    if ((ret = ff_instantiate_mf(log, mf_api, category,
+        (is_dec ? &reg : NULL), (is_dec ? NULL : &reg),  use_hw, mft)) < 0)
+        return ret;
+
+    return 0;
 }
