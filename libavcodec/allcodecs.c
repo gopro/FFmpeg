@@ -33,6 +33,7 @@
 #include "codec.h"
 #include "codec_id.h"
 #include "codec_internal.h"
+#include "libavutil/opt.h"
 
 extern const FFCodec ff_a64multi_encoder;
 extern const FFCodec ff_a64multi5_encoder;
@@ -809,6 +810,7 @@ extern const FFCodec ff_idf_decoder;
 /* external libraries, that shouldn't be used by default if one of the
  * above is available */
 extern const FFCodec ff_aac_mf_encoder;
+extern const FFCodec ff_aac_mf_decoder;
 extern const FFCodec ff_ac3_mf_encoder;
 extern const FFCodec ff_h263_v4l2m2m_encoder;
 extern const FFCodec ff_libaom_av1_decoder;
@@ -821,6 +823,7 @@ extern const FFCodec ff_libopenh264_decoder;
 extern const FFCodec ff_h264_amf_encoder;
 extern const FFCodec ff_h264_cuvid_decoder;
 extern const FFCodec ff_h264_mf_encoder;
+extern const FFCodec ff_h264_mf_decoder;
 extern const FFCodec ff_h264_nvenc_encoder;
 extern const FFCodec ff_h264_omx_encoder;
 extern const FFCodec ff_h264_qsv_encoder;
@@ -831,6 +834,7 @@ extern const FFCodec ff_hevc_amf_encoder;
 extern const FFCodec ff_hevc_cuvid_decoder;
 extern const FFCodec ff_hevc_mediacodec_decoder;
 extern const FFCodec ff_hevc_mf_encoder;
+extern const FFCodec ff_hevc_mf_decoder;
 extern const FFCodec ff_hevc_nvenc_encoder;
 extern const FFCodec ff_hevc_qsv_encoder;
 extern const FFCodec ff_hevc_v4l2m2m_encoder;

@@ -23,7 +23,7 @@
 #define COBJMACROS
 
 #include <initguid.h>
-#include <d3d11.h>
+#include <d3d11_4.h>
 #include <dxgi1_2.h>
 
 #if HAVE_DXGIDEBUG_H
@@ -544,7 +544,7 @@ static int d3d11va_device_create(AVHWDeviceContext *ctx, const char *device,
 
     HRESULT hr;
     IDXGIAdapter           *pAdapter = NULL;
-    ID3D10Multithread      *pMultithread;
+    ID3D11Multithread      *pMultithread;
     UINT creationFlags = D3D11_CREATE_DEVICE_VIDEO_SUPPORT;
     int is_debug       = !!av_dict_get(opts, "debug", NULL, 0);
     int ret;
@@ -594,10 +594,10 @@ static int d3d11va_device_create(AVHWDeviceContext *ctx, const char *device,
         return AVERROR_UNKNOWN;
     }
 
-    hr = ID3D11Device_QueryInterface(device_hwctx->device, &IID_ID3D10Multithread, (void **)&pMultithread);
+    hr = ID3D11Device_QueryInterface(device_hwctx->device, &IID_ID3D11Multithread, (void **)&pMultithread);
     if (SUCCEEDED(hr)) {
-        ID3D10Multithread_SetMultithreadProtected(pMultithread, TRUE);
-        ID3D10Multithread_Release(pMultithread);
+        ID3D11Multithread_SetMultithreadProtected(pMultithread, TRUE);
+        ID3D11Multithread_Release(pMultithread);
     }
 
 #if !HAVE_UWP && HAVE_DXGIDEBUG_H
