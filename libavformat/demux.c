@@ -70,11 +70,26 @@ static const AVCodec *find_probe_decoder(AVFormatContext *s, const AVStream *st,
 {
     const AVCodec *codec;
 
-#if CONFIG_H264_DECODER
+#if defined(_WIN32) && CONFIG_H264_MF_DECODER
+    /*  force MF variant for decoding on Windows */
+    if (codec_id == AV_CODEC_ID_H264)
+        return avcodec_find_decoder_by_name("h264_mf");
+#elif CONFIG_H264_DECODER
     /* Other parts of the code assume this decoder to be used for h264,
      * so force it if possible. */
     if (codec_id == AV_CODEC_ID_H264)
         return avcodec_find_decoder_by_name("h264");
+#endif
+
+#if defined(_WIN32) && CONFIG_HEVC_MF_DECODER
+    /*  force MF variant for decoding on Windows */
+    if (codec_id == AV_CODEC_ID_HEVC)
+        return avcodec_find_decoder_by_name("hevc_mf");
+#elif CONFIG_HEVC_DECODER
+    /* Other parts of the code assume this decoder to be used for hevc,
+     * so force it if possible. */
+    if (codec_id == AV_CODEC_ID_HEVC)
+        return avcodec_find_decoder_by_name("hevc");
 #endif
 
     codec = ff_find_decoder(s, st, codec_id);
@@ -111,8 +126,15 @@ static int set_codec_from_probe_data(AVFormatContext *s, AVStream *st,
         { "dvbsub",     AV_CODEC_ID_DVB_SUBTITLE, AVMEDIA_TYPE_SUBTITLE },
         { "dvbtxt",     AV_CODEC_ID_DVB_TELETEXT, AVMEDIA_TYPE_SUBTITLE },
         { "eac3",       AV_CODEC_ID_EAC3,         AVMEDIA_TYPE_AUDIO    },
+#if defined(_WIN32)
+#if CONFIG_MEDIAFOUNDATION
+        { "h264_mf",    AV_CODEC_ID_H264,         AVMEDIA_TYPE_VIDEO    },
+        { "hevc_mf",    AV_CODEC_ID_HEVC,         AVMEDIA_TYPE_VIDEO    },
+#else
         { "h264",       AV_CODEC_ID_H264,         AVMEDIA_TYPE_VIDEO    },
         { "hevc",       AV_CODEC_ID_HEVC,         AVMEDIA_TYPE_VIDEO    },
+#endif
+#endif
         { "loas",       AV_CODEC_ID_AAC_LATM,     AVMEDIA_TYPE_AUDIO    },
         { "m4v",        AV_CODEC_ID_MPEG4,        AVMEDIA_TYPE_VIDEO    },
         { "mjpeg_2000", AV_CODEC_ID_JPEG2000,     AVMEDIA_TYPE_VIDEO    },
