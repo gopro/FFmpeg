@@ -41,3 +41,6 @@
 /src
 /mapfile
 /tools/python/__pycache__/
+/.vs
+/.vscode
+/CppProperties.json

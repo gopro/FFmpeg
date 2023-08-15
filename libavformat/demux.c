@@ -70,11 +70,33 @@ static const AVCodec *find_probe_decoder(AVFormatContext *s, const AVStream *st,
 {
     const AVCodec *codec;
 
+#if defined(_WIN32) && CONFIG_MSDECODERS
+    /*  force MF variants for decoding on Windows */
+    #if CONFIG_H264_MF_DECODER
+    if (codec_id == AV_CODEC_ID_H264)
+        return avcodec_find_decoder_by_name("h264_mf");
+    #endif
+    #if CONFIG_HEVC_MF_DECODER
+    if (codec_id == AV_CODEC_ID_HEVC)
+        return avcodec_find_decoder_by_name("hevc_mf");
+    #endif
+    #if defined(_WIN32) && CONFIG_AAC_MF_DECODER
+    if (codec_id == AV_CODEC_ID_AAC)
+        return avcodec_find_decoder_by_name("aac_mf");
+    #endif
+#endif
+
 #if CONFIG_H264_DECODER
     /* Other parts of the code assume this decoder to be used for h264,
      * so force it if possible. */
     if (codec_id == AV_CODEC_ID_H264)
         return avcodec_find_decoder_by_name("h264");
+#endif
+#if CONFIG_HEVC_DECODER
+    /* Other parts of the code assume this decoder to be used for hevc,
+     * so force it if possible. */
+    if (codec_id == AV_CODEC_ID_HEVC)
+        return avcodec_find_decoder_by_name("hevc");
 #endif
 
     codec = ff_find_decoder(s, st, codec_id);
