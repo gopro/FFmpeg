@@ -3009,7 +3009,7 @@ zmbv_encoder_select="deflate_wrapper"
 crystalhd_deps="libcrystalhd_libcrystalhd_if_h"
 cuda_deps="ffnvcodec"
 cuvid_deps="ffnvcodec"
-d3d12va_deps="dxva_h ID3D12VideoDecoder ID3D12VideoDevice"
+d3d12va_deps="dxva_h ID3D12VideoDecoder"
 d3d11va_deps="dxva_h ID3D11VideoDecoder ID3D11VideoContext"
 dxva2_deps="dxva2api_h DXVA2_ConfigPictureDecode ole32 user32"
 ffnvcodec_deps_any="libdl LoadLibrary"
@@ -6418,7 +6418,6 @@ check_type "windows.h dxva.h" "DXVA_PicParams_VP9" -DWINAPI_FAMILY=WINAPI_FAMILY
 check_type "windows.h d3d11.h" "ID3D11VideoDecoder"
 check_type "windows.h d3d11.h" "ID3D11VideoContext"
 check_type "windows.h d3d12.h" "ID3D12VideoDecoder"
-check_type "windows.h d3d12.h" "ID3D12VideoDevice"
 check_type "d3d9.h dxva2api.h" DXVA2_ConfigPictureDecode -D_WIN32_WINNT=0x0602
 check_func_headers mfapi.h MFCreateAlignedMemoryBuffer -lmfplat
 
