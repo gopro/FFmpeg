@@ -3894,6 +3894,9 @@ const FFCodec ff_hevc_decoder = {
 #if CONFIG_HEVC_D3D11VA2_HWACCEL
                                HWACCEL_D3D11VA2(hevc),
 #endif
+#if CONFIG_HEVC_D3D12VA_HWACCEL
+                               HWACCEL_D3D12VA(hevc),
+#endif
 #if CONFIG_HEVC_NVDEC_HWACCEL
                                HWACCEL_NVDEC(hevc),
 #endif

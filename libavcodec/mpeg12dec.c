@@ -2926,6 +2926,9 @@ const FFCodec ff_mpeg2video_decoder = {
 #if CONFIG_MPEG2_D3D11VA2_HWACCEL
                         HWACCEL_D3D11VA2(mpeg2),
 #endif
+#if CONFIG_MPEG2_D3D12VA_HWACCEL
+                        HWACCEL_D3D12VA(mpeg2),
+#endif
 #if CONFIG_MPEG2_NVDEC_HWACCEL
                         HWACCEL_NVDEC(mpeg2),
 #endif

@@ -1224,6 +1224,9 @@ const FFCodec ff_vc1_decoder = {
 #if CONFIG_VC1_D3D11VA2_HWACCEL
                         HWACCEL_D3D11VA2(vc1),
 #endif
+#if CONFIG_VC1_D3D12VA_HWACCEL
+                        HWACCEL_D3D12VA(vc1),
+#endif
 #if CONFIG_VC1_NVDEC_HWACCEL
                         HWACCEL_NVDEC(vc1),
 #endif

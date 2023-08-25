@@ -336,6 +336,7 @@ External library support:
   --enable-cuda-nvcc       enable Nvidia CUDA compiler [no]
   --disable-cuda-llvm      disable CUDA compilation using clang [autodetect]
   --disable-cuvid          disable Nvidia CUVID support [autodetect]
+  --disable-d3d12va        disable Microsoft Direct3D 12 video acceleration code [autodetect]
   --disable-d3d11va        disable Microsoft Direct3D 11 video acceleration code [autodetect]
   --disable-dxva2          disable Microsoft DirectX 9 video acceleration code [autodetect]
   --disable-ffnvcodec      disable dynamically linked Nvidia code [autodetect]
@@ -1894,6 +1895,7 @@ HWACCEL_AUTODETECT_LIBRARY_LIST="
     cuda
     cuda_llvm
     cuvid
+    d3d12va
     d3d11va
     dxva2
     ffnvcodec
@@ -3007,6 +3009,7 @@ zmbv_encoder_select="deflate_wrapper"
 crystalhd_deps="libcrystalhd_libcrystalhd_if_h"
 cuda_deps="ffnvcodec"
 cuvid_deps="ffnvcodec"
+d3d12va_deps="dxva_h ID3D12VideoDecoder ID3D12VideoDevice"
 d3d11va_deps="dxva_h ID3D11VideoDecoder ID3D11VideoContext"
 dxva2_deps="dxva2api_h DXVA2_ConfigPictureDecode ole32 user32"
 ffnvcodec_deps_any="libdl LoadLibrary"
@@ -3020,6 +3023,8 @@ av1_d3d11va_hwaccel_deps="d3d11va DXVA_PicParams_AV1"
 av1_d3d11va_hwaccel_select="av1_decoder"
 av1_d3d11va2_hwaccel_deps="d3d11va DXVA_PicParams_AV1"
 av1_d3d11va2_hwaccel_select="av1_decoder"
+av1_d3d12va_hwaccel_deps="d3d12va DXVA_PicParams_AV1"
+av1_d3d12va_hwaccel_select="av1_decoder"
 av1_dxva2_hwaccel_deps="dxva2 DXVA_PicParams_AV1"
 av1_dxva2_hwaccel_select="av1_decoder"
 av1_nvdec_hwaccel_deps="nvdec CUVIDAV1PICPARAMS"
@@ -3036,6 +3041,8 @@ h264_d3d11va_hwaccel_deps="d3d11va"
 h264_d3d11va_hwaccel_select="h264_decoder"
 h264_d3d11va2_hwaccel_deps="d3d11va"
 h264_d3d11va2_hwaccel_select="h264_decoder"
+h264_d3d12va_hwaccel_deps="d3d12va"
+h264_d3d12va_hwaccel_select="h264_decoder"
 h264_dxva2_hwaccel_deps="dxva2"
 h264_dxva2_hwaccel_select="h264_decoder"
 h264_nvdec_hwaccel_deps="nvdec"
@@ -3050,6 +3057,8 @@ hevc_d3d11va_hwaccel_deps="d3d11va DXVA_PicParams_HEVC"
 hevc_d3d11va_hwaccel_select="hevc_decoder"
 hevc_d3d11va2_hwaccel_deps="d3d11va DXVA_PicParams_HEVC"
 hevc_d3d11va2_hwaccel_select="hevc_decoder"
+hevc_d3d12va_hwaccel_deps="d3d12va DXVA_PicParams_HEVC"
+hevc_d3d12va_hwaccel_select="hevc_decoder"
 hevc_dxva2_hwaccel_deps="dxva2 DXVA_PicParams_HEVC"
 hevc_dxva2_hwaccel_select="hevc_decoder"
 hevc_nvdec_hwaccel_deps="nvdec"
@@ -3074,6 +3083,8 @@ mpeg2_d3d11va_hwaccel_deps="d3d11va"
 mpeg2_d3d11va_hwaccel_select="mpeg2video_decoder"
 mpeg2_d3d11va2_hwaccel_deps="d3d11va"
 mpeg2_d3d11va2_hwaccel_select="mpeg2video_decoder"
+mpeg2_d3d12va_hwaccel_deps="d3d12va"
+mpeg2_d3d12va_hwaccel_select="mpeg2video_decoder"
 mpeg2_dxva2_hwaccel_deps="dxva2"
 mpeg2_dxva2_hwaccel_select="mpeg2video_decoder"
 mpeg2_nvdec_hwaccel_deps="nvdec"
@@ -3098,6 +3109,8 @@ vc1_d3d11va_hwaccel_deps="d3d11va"
 vc1_d3d11va_hwaccel_select="vc1_decoder"
 vc1_d3d11va2_hwaccel_deps="d3d11va"
 vc1_d3d11va2_hwaccel_select="vc1_decoder"
+vc1_d3d12va_hwaccel_deps="d3d12va"
+vc1_d3d12va_hwaccel_select="vc1_decoder"
 vc1_dxva2_hwaccel_deps="dxva2"
 vc1_dxva2_hwaccel_select="vc1_decoder"
 vc1_nvdec_hwaccel_deps="nvdec"
@@ -3114,6 +3127,8 @@ vp9_d3d11va_hwaccel_deps="d3d11va DXVA_PicParams_VP9"
 vp9_d3d11va_hwaccel_select="vp9_decoder"
 vp9_d3d11va2_hwaccel_deps="d3d11va DXVA_PicParams_VP9"
 vp9_d3d11va2_hwaccel_select="vp9_decoder"
+vp9_d3d12va_hwaccel_deps="d3d12va DXVA_PicParams_VP9"
+vp9_d3d12va_hwaccel_select="vp9_decoder"
 vp9_dxva2_hwaccel_deps="dxva2 DXVA_PicParams_VP9"
 vp9_dxva2_hwaccel_select="vp9_decoder"
 vp9_nvdec_hwaccel_deps="nvdec"
@@ -3126,6 +3141,7 @@ vp9_videotoolbox_hwaccel_deps="videotoolbox"
 vp9_videotoolbox_hwaccel_select="vp9_decoder"
 wmv3_d3d11va_hwaccel_select="vc1_d3d11va_hwaccel"
 wmv3_d3d11va2_hwaccel_select="vc1_d3d11va2_hwaccel"
+wmv3_d3d12va_hwaccel_select="vc1_d3d12va_hwaccel"
 wmv3_dxva2_hwaccel_select="vc1_dxva2_hwaccel"
 wmv3_nvdec_hwaccel_select="vc1_nvdec_hwaccel"
 wmv3_vaapi_hwaccel_select="vc1_vaapi_hwaccel"
@@ -3395,6 +3411,11 @@ vapoursynth_demuxer_deps="vapoursynth"
 videotoolbox_suggest="coreservices"
 videotoolbox_deps="corefoundation coremedia corevideo"
 videotoolbox_encoder_deps="videotoolbox VTCompressionSessionPrepareToEncodeFrames"
+aac_mediafoundation_encoder_deps="mediafoundation"
+ac3_mediafoundation_encoder_deps="mediafoundation"
+h264_mediafoundation_encoder_deps="mediafoundation"
+hevc_mediafoundation_encoder_deps="mediafoundation"
+mp3_mediafoundation_encoder_deps="mediafoundation"
 
 # demuxers / muxers
 ac3_demuxer_select="ac3_parser"
@@ -3548,6 +3569,8 @@ xv_outdev_deps="xlib_xv xlib_x11 xlib_xext"
 
 # protocols
 async_protocol_deps="threads"
+android_content_protocol_deps="jni"
+android_content_protocol_select="file_protocol"
 bluray_protocol_deps="libbluray"
 ffrtmpcrypt_protocol_conflict="librtmp_protocol"
 ffrtmpcrypt_protocol_deps_any="gcrypt gmp openssl mbedtls"
@@ -3812,7 +3835,7 @@ swscale_suggest="libm stdatomic"
 
 avcodec_extralibs="pthreads_extralibs iconv_extralibs dxva2_extralibs"
 avfilter_extralibs="pthreads_extralibs"
-avutil_extralibs="d3d11va_extralibs nanosleep_extralibs pthreads_extralibs vaapi_drm_extralibs vaapi_x11_extralibs vdpau_x11_extralibs"
+avutil_extralibs="d3d11va_extralibs d3d12va_extralibs nanosleep_extralibs pthreads_extralibs vaapi_drm_extralibs vaapi_x11_extralibs vdpau_x11_extralibs"
 
 # programs
 ffmpeg_deps="avcodec avfilter avformat"
@@ -4006,6 +4029,7 @@ MUXER_LIST=$(find_things_extern muxer AVOutputFormat libavformat/allformats.c)
 DEMUXER_LIST=$(find_things_extern demuxer AVInputFormat libavformat/allformats.c)
 ENCODER_LIST=$(find_things_extern encoder FFCodec libavcodec/allcodecs.c)
 DECODER_LIST=$(find_things_extern decoder FFCodec libavcodec/allcodecs.c)
+
 CODEC_LIST="
     $ENCODER_LIST
     $DECODER_LIST
@@ -6393,6 +6417,8 @@ check_type "windows.h dxva.h" "DXVA_PicParams_HEVC" -DWINAPI_FAMILY=WINAPI_FAMIL
 check_type "windows.h dxva.h" "DXVA_PicParams_VP9" -DWINAPI_FAMILY=WINAPI_FAMILY_DESKTOP_APP -D_CRT_BUILD_DESKTOP_APP=0
 check_type "windows.h d3d11.h" "ID3D11VideoDecoder"
 check_type "windows.h d3d11.h" "ID3D11VideoContext"
+check_type "windows.h d3d12.h" "ID3D12VideoDecoder"
+check_type "windows.h d3d12.h" "ID3D12VideoDevice"
 check_type "d3d9.h dxva2api.h" DXVA2_ConfigPictureDecode -D_WIN32_WINNT=0x0602
 check_func_headers mfapi.h MFCreateAlignedMemoryBuffer -lmfplat
 
@@ -6878,6 +6904,21 @@ test_cpp <<EOF && enable uwp && d3d11va_extralibs="-ldxgi -ld3d11"
 #include <winapifamily.h>
 #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
 #error desktop, not uwp
+#else
+// WINAPI_FAMILY_APP, WINAPI_FAMILY_PHONE_APP => UWP
+#endif
+#else
+#error no family set
+#endif
+EOF
+
+# d3d12va requires linking directly to dxgi and d3d11 & d3d12 if not building for
+# the desktop api partition
+test_cpp <<EOF && enable d3d11va && d3d12va_extralibs="-ldxgi -ld3d11 -ld3d12"
+#ifdef WINAPI_FAMILY
+#include <winapifamily.h>
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+#error desktop, not d3d11 or uwp
 #else
 // WINAPI_FAMILY_APP, WINAPI_FAMILY_PHONE_APP => UWP
 #endif
