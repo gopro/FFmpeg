@@ -27,7 +27,7 @@
 #include "hevc_data.h"
 #include "hevcdec.h"
 #include "dxva2_internal.h"
-#include "d3d12va.h"
+#include "d3d12va_decode.h"
 #include <dxva.h>
 
 #define MAX_SLICES 256
@@ -181,13 +181,8 @@ static int d3d12va_hevc_decode_init(AVCodecContext *avctx)
         break;
 
     case FF_PROFILE_HEVC_MAIN_STILL_PICTURE:
-        if (avctx->hwaccel_flags & AV_HWACCEL_FLAG_ALLOW_PROFILE_MISMATCH) {
-            ctx->cfg.DecodeProfile = D3D12_VIDEO_DECODE_PROFILE_HEVC_MAIN;
-            break;
-        } else {
-            av_log(avctx, AV_LOG_ERROR, "D3D12 doesn't support PROFILE_HEVC_MAIN_STILL_PICTURE!\n");
-            return AVERROR(EINVAL);
-        }
+        av_log(avctx, AV_LOG_ERROR, "D3D12 doesn't support PROFILE_HEVC_MAIN_STILL_PICTURE!\n");
+        return AVERROR(EINVAL);
 
     case FF_PROFILE_HEVC_MAIN:
     default:
@@ -204,6 +199,10 @@ const AVHWAccel ff_hevc_d3d12va_hwaccel = {
     .type                 = AVMEDIA_TYPE_VIDEO,
     .id                   = AV_CODEC_ID_HEVC,
     .pix_fmt              = AV_PIX_FMT_D3D12,
+    .p.name               = "hevc_d3d12va",
+    .p.type               = AVMEDIA_TYPE_VIDEO,
+    .p.id                 = AV_CODEC_ID_HEVC,
+    .p.pix_fmt            = AV_PIX_FMT_D3D12,
     .init                 = d3d12va_hevc_decode_init,
     .uninit               = ff_d3d12va_decode_uninit,
     .start_frame          = d3d12va_hevc_start_frame,
