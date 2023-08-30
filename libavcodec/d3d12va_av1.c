@@ -25,7 +25,7 @@
 #include "libavutil/hwcontext_d3d12va_internal.h"
 #include "av1dec.h"
 #include "dxva2_internal.h"
-#include "d3d12va.h"
+#include "d3d12va_decode.h"
 
 #define MAX_TILES 256
 
