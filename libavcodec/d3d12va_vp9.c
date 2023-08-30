@@ -28,7 +28,7 @@
 
 #include "vp9shared.h"
 #include "dxva2_internal.h"
-#include "d3d12va.h"
+#include "d3d12va_decode.h"
 
 typedef struct VP9DecodePictureContext {
     DXVA_PicParams_VP9    pp;
