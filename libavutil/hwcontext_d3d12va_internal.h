@@ -37,27 +37,23 @@
  *
  * @brief A check macro used by D3D12 functions highly frequently
  */
-#define DX_CHECK(hr) if (FAILED(hr)) { \
-    goto fail; \
-}
+#define DX_CHECK(hr)                              \
+    do {                                          \
+        if (FAILED(hr))                           \
+            goto fail;                            \
+    } while (0)
 
 /**
  * @def D3D12_OBJECT_RELEASE
  *
  * @brief A release macro used by D3D12 objects highly frequently
  */
-#define D3D12_OBJECT_RELEASE(pInterface) if (pInterface) { \
-    IUnknown_Release((IUnknown *)pInterface); \
-    pInterface = NULL; \
-}
-
-/**
- * @def D3D12VA_MAX_SURFACES
- *
- * @brief Maximum number surfaces
- * The reference processing over decoding will be corrupted on some drivers
- * if the max number of reference frames exceeds this.
- */
-#define D3D12VA_MAX_SURFACES 32
+#define D3D12_OBJECT_RELEASE(pInterface)              \
+    do {                                              \
+        if (pInterface) {                             \
+            IUnknown_Release((IUnknown *)pInterface); \
+            pInterface = NULL;                        \
+        }                                             \
+    } while (0)
 
 #endif /* AVUTIL_HWCONTEXT_D3D12VA_INTERNAL_H */

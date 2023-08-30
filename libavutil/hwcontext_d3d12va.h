@@ -27,6 +27,8 @@
  * @file
  * An API-specific header for AV_HWDEVICE_TYPE_D3D12VA.
  *
+ * This API does not support dynamic frame pools. AVHWFramesContext.pool must
+ * contain AVBufferRefs whose data pointer points to an AVD3D12FrameDescriptor struct.
  */
 #include <stdint.h>
 #include <initguid.h>
@@ -57,13 +59,6 @@ typedef struct AVD3D12VADeviceContext {
      * and it does not matter whether it was user-allocated.
      */
     ID3D12VideoDevice *video_device;
-
-    /**
-     * Specifed by sync=1 when init d3d12va
-     *
-     * Execute commands as sync mode
-     */
-    int sync;
 } AVD3D12VADeviceContext;
 
 /**
@@ -88,23 +83,19 @@ typedef struct AVD3D12VASyncContext {
 } AVD3D12VASyncContext;
 
 /**
- * @brief D3D12 frame descriptor for pool allocation.
+ * @brief D3D12VA frame descriptor for pool allocation.
  *
  */
-typedef struct AVD3D12FrameDescriptor {
+typedef struct AVD3D12VAFrame {
     /**
      * The texture in which the frame is located. The reference count is
      * managed by the AVBufferRef, and destroying the reference will release
      * the interface.
-     *
-     * Normally stored in AVFrame.data[0].
      */
     ID3D12Resource *texture;
 
     /**
      * The index into the array texture element representing the frame
-     *
-     * Normally stored in AVFrame.data[1] (cast from intptr_t).
      */
     intptr_t index;
 
@@ -113,11 +104,9 @@ typedef struct AVD3D12FrameDescriptor {
      *
      * Use av_d3d12va_wait_idle(sync_ctx) to ensure the decoding or encoding have been finised
      * @see: https://learn.microsoft.com/en-us/windows/win32/medfound/direct3d-12-video-overview#directx-12-fences
-     *
-     * Normally stored in AVFrame.data[2].
      */
     AVD3D12VASyncContext *sync_ctx;
-} AVD3D12FrameDescriptor;
+} AVD3D12VAFrame;
 
 /**
  * @brief This struct is allocated as AVHWFramesContext.hwctx
@@ -125,10 +114,9 @@ typedef struct AVD3D12FrameDescriptor {
  */
 typedef struct AVD3D12VAFramesContext {
     /**
-     * The same implementation as d3d11va
      * This field is not able to be user-allocated at the present.
      */
-    AVD3D12FrameDescriptor *texture_infos;
+    AVD3D12VAFrame *texture_infos;
 } AVD3D12VAFramesContext;
 
 /**
@@ -149,19 +137,5 @@ int av_d3d12va_sync_context_alloc(AVD3D12VADeviceContext *ctx, AVD3D12VASyncCont
  * @brief Free an AVD3D12VASyncContext
  */
 void av_d3d12va_sync_context_free(AVD3D12VASyncContext **sync_ctx);
-
-/**
- * @brief Wait for the sync context to the idle state
- *
- * @return Error code (ret < 0 if failed)
- */
-int av_d3d12va_wait_idle(AVD3D12VASyncContext *sync_ctx);
-
-/**
- * @brief Wait for a specified command queue to the idle state
- *
- * @return Error code (ret < 0 if failed)
- */
-int av_d3d12va_wait_queue_idle(AVD3D12VASyncContext *sync_ctx, ID3D12CommandQueue *command_queue);
 
 #endif /* AVUTIL_HWCONTEXT_D3D12VA_H */
