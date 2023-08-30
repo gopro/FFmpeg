@@ -27,7 +27,7 @@
 #include "mpegvideodec.h"
 #include "vc1.h"
 #include "vc1data.h"
-#include "d3d12va.h"
+#include "d3d12va_decode.h"
 #include "dxva2_internal.h"
 
 #define MAX_SLICES  1024
