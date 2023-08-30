@@ -775,8 +775,11 @@ unsigned ff_dxva2_get_surface_index(const AVCodecContext *avctx,
     unsigned i;
 
 #if CONFIG_D3D12VA
-    if (avctx->pix_fmt == AV_PIX_FMT_D3D12)
-       return (intptr_t)frame->data[1];
+    if (avctx->pix_fmt == AV_PIX_FMT_D3D12) {
+        AVD3D12VAFrame *f = (AVD3D12VAFrame *)frame->data[0];
+        if (!f) return 0;
+        return (intptr_t)f->index;
+    }
 #endif
 #if CONFIG_D3D11VA
     if (avctx->pix_fmt == AV_PIX_FMT_D3D11)

@@ -48,7 +48,7 @@ static void fill_picture_entry(DXVA_PicEntry_H264 *pic,
 }
 
 void ff_dxva2_h264_fill_picture_parameters(const AVCodecContext *avctx, AVDXVAContext *ctx,
-                                     DXVA_PicParams_H264 *pp)
+                                    DXVA_PicParams_H264 *pp)
 {
     const H264Context *h               = avctx->priv_data;
     const H264Picture *current_picture = h->cur_pic_ptr;
@@ -456,7 +456,7 @@ static int dxva2_h264_start_frame(AVCodecContext *avctx,
 
     /* Fill up DXVA_PicParams_H264 */
     ff_dxva2_h264_fill_picture_parameters(avctx, ctx, &ctx_pic->pp);
- 
+
     /* Fill up DXVA_Qmatrix_H264 */
     ff_dxva2_h264_fill_scaling_lists(avctx, ctx, &ctx_pic->qm);
 

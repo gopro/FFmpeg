@@ -51,7 +51,7 @@
 #endif
 
 #if CONFIG_D3D12VA
-#include "d3d12va.h"
+#include "d3d12va_decode.h"
 #endif
 
 #if HAVE_DXVA_H
@@ -165,25 +165,5 @@ unsigned *ff_dxva2_get_report_id(const AVCodecContext *avctx, AVDXVAContext *ctx
 void ff_dxva2_h264_fill_picture_parameters(const AVCodecContext *avctx, AVDXVAContext *ctx, DXVA_PicParams_H264 *pp);
 
 void ff_dxva2_h264_fill_scaling_lists(const AVCodecContext *avctx, AVDXVAContext *ctx, DXVA_Qmatrix_H264 *qm);
-
-void ff_dxva2_hevc_fill_picture_parameters(const AVCodecContext *avctx, AVDXVAContext *ctx, DXVA_PicParams_HEVC *pp);
-
-void ff_dxva2_hevc_fill_scaling_lists(const AVCodecContext *avctx, AVDXVAContext *ctx, DXVA_Qmatrix_HEVC *qm);
-
-int ff_dxva2_vp9_fill_picture_parameters(const AVCodecContext *avctx, AVDXVAContext *ctx, DXVA_PicParams_VP9 *pp);
-
-#if CONFIG_AV1_D3D12VA_HWACCEL || CONFIG_AV1_D3D11VA_HWACCEL || CONFIG_AV1_D3D11VA2_HWACCEL || CONFIG_AV1_DXVA2_HWACCEL
-int ff_dxva2_av1_fill_picture_parameters(const AVCodecContext *avctx, AVDXVAContext *ctx, DXVA_PicParams_AV1 *pp);
-#endif
-
-void ff_dxva2_mpeg2_fill_picture_parameters(AVCodecContext *avctx, AVDXVAContext *ctx, DXVA_PictureParameters *pp);
-
-void ff_dxva2_mpeg2_fill_quantization_matrices(AVCodecContext *avctx, AVDXVAContext *ctx, DXVA_QmatrixData *qm);
-
-void ff_dxva2_mpeg2_fill_slice(AVCodecContext *avctx, DXVA_SliceInfo *slice,  unsigned position, const uint8_t *buffer, unsigned size);
-
-void ff_dxva2_vc1_fill_picture_parameters(AVCodecContext *avctx, AVDXVAContext *ctx, DXVA_PictureParameters *pp);
-
-void ff_dxva2_vc1_fill_slice(AVCodecContext *avctx, DXVA_SliceInfo *slice, unsigned position, unsigned size);
 
 #endif /* AVCODEC_DXVA2_INTERNAL_H */

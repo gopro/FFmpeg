@@ -27,7 +27,7 @@
 #include "h264_ps.h"
 #include "mpegutils.h"
 #include "dxva2_internal.h"
-#include "d3d12va.h"
+#include "d3d12va_decode.h"
 #include "libavutil/hwcontext_d3d12va_internal.h"
 #include <dxva.h>
 
