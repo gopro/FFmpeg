@@ -30,9 +30,15 @@
 #include <mfidl.h>
 #include <uuids.h>
 #include <codecapi.h>
+#include <d3d12.h>
+#include <d3d11on12.h>
+#include <d3d11.h>
 #include <d3d11_4.h>
 #include <d3d9.h>
+#include <d2d1.h>
 #include <dxva2api.h>
+#include <dxgi1_6.h>
+#include <combaseapi.h>
 
 #include <stdint.h>
 #include <string.h>
@@ -49,7 +55,12 @@
 #include "pixdesc.h"
 #include "compat/w32dlfcn.h"
 
+static const UINT FrameCount = 3;
+
 typedef struct MFDeviceContext {
+    HANDLE d3d12_dll;
+    HANDLE d3d11on12_dll;
+    HANDLE dxgi_dll;
     HANDLE d3d11_dll;
     HANDLE d3d9_dll;
     HANDLE dxva2_dll;
@@ -82,6 +93,22 @@ static void mf_uninit_d3d(AVHWDeviceContext *ctx)
         IMFDXGIDeviceManager_Release(hwctx->d3d11_manager);
         hwctx->d3d11_manager = NULL;
     }
+
+    if (priv->d3d12_dll)
+        dlclose(priv->d3d12_dll);
+    priv->d3d12_dll = NULL;
+
+    if (priv->d3d11on12_dll)
+        dlclose(priv->d3d11on12_dll);
+    priv->d3d11on12_dll = NULL;
+
+    if (priv->dxgi_dll)
+        dlclose(priv->dxgi_dll);
+    priv->dxgi_dll = NULL;
+
+    if (priv->d3d11_dll)
+        dlclose(priv->d3d11_dll);
+    priv->d3d11_dll = NULL;
 
     if (hwctx->d3d9_manager) {
         IDirect3DDeviceManager9_Release(hwctx->d3d9_manager);
@@ -228,7 +255,7 @@ static int mf_create_d3d9_device(AVHWDeviceContext *ctx, int loglevel)
     AVMFDeviceContext *hwctx = ctx->hwctx;
     MFDeviceContext *priv = ctx->internal->priv;
     pDirect3DCreate9      *createD3D = NULL;
-    pDirect3DCreate9Ex    *createD3DEx = NULL;;
+    pDirect3DCreate9Ex    *createD3DEx = NULL;
     pCreateDeviceManager9 *createDeviceManager = NULL;
     IDirect3D9Ex          *d3d9ex = NULL;
     IDirect3DDevice9Ex    *d3d9deviceEx = NULL;
@@ -344,39 +371,292 @@ fail:
         IDirect3DDevice9Ex_Release(d3d9deviceEx);
     if (d3d9ex)
         IDirect3D9Ex_Release(d3d9ex);
-     
-     mf_uninit_d3d(ctx);
+
+    mf_uninit_d3d(ctx);
     return AVERROR_EXTERNAL;
 }
+
+static int mf_create_d3d11on12_device(AVHWDeviceContext* ctx, int loglevel)
+{
+    AVMFDeviceContext     *hwctx = ctx->hwctx;
+    MFDeviceContext       *priv = ctx->internal->priv;
+    HRESULT hr;
+    UINT token;
+    UINT                  dxgiFactoryFlags = 0;
+    D2D1_FACTORY_OPTIONS  d2dFactoryOptions; //  = 0;
+    IDXGIFactory4         *dxgi_factory = NULL;
+    ID3D11Device          *d3d11_device = NULL;
+    ID3D12Device          *d3d12_device = NULL;
+    ID3D11On12Device      *d3d11on12_device = NULL;
+    ID3D11On12Device2     *d3d11On12Device2 = NULL;
+    ID3D11DeviceContext   *d3d11_deviceContext = NULL;
+
+    // SAVE On device context!!
+    IDXGISwapChain3       *dxgi_swapchain = NULL;
+
+    ID3D11Multithread     *multithread;
+    HRESULT (WINAPI *pD3D12CreateDevice)(
+        _In_opt_          IDXGIAdapter              *pAdapter,
+        _In_opt_          const D3D_FEATURE_LEVEL   *pFeatureLevels,
+        _In_              REFIID riid,              // Expected: ID3D12Device
+        _COM_Outptr_opt_  void                      **ppDevice
+        );
+
+    HRESULT (WINAPI *pD3D11On12CreateDevice)(
+        _In_              IUnknown *pDevice,
+        UINT              Flags,
+        _In_reads_opt_(FeatureLevels) 
+                          CONST D3D_FEATURE_LEVEL   *pFeatureLevels,
+        UINT              FeatureLevels,
+        _In_reads_opt_(NumQueues) 
+                          IUnknown *CONST           *ppCommandQueues,
+        UINT              NumQueues,
+        UINT              NodeMask,
+        _COM_Outptr_opt_  ID3D11Device              **ppDevice,
+        _COM_Outptr_opt_  ID3D11DeviceContext       **ppImmediateContext,
+        _Out_opt_         D3D_FEATURE_LEVEL         *pChosenFeatureLevel
+        );
+
+    HRESULT(WINAPI * pCreateDXGIFactory2)(
+        UINT Flags,
+        REFIID riid,
+        _COM_Outptr_ void** ppFactory
+        );
+
+    HRESULT(WINAPI * pMFCreateDXGIDeviceManager)(
+        _Out_ UINT * pResetToken,
+        _Out_ IMFDXGIDeviceManager * *ppDXVAManager
+        );
+    HANDLE mfplat_dll;
+
+    if (hwctx->init_d3d12_device) {
+        d3d12_device = hwctx->init_d3d12_device;
+        ID3D12Device_AddRef(d3d12_device);
+    } else {
+        priv->d3d12_dll = dlopen(L"D3D12.dll", 0);
+        if (!priv->d3d12_dll)
+            return AVERROR_EXTERNAL;
+
+        priv->dxgi_dll = dlopen(L"DXGI.dll", 0);
+        if (!priv->dxgi_dll)
+            return AVERROR_EXTERNAL;
+
+        pD3D12CreateDevice = (void*)dlsym(priv->d3d12_dll, "D3D12CreateDevice");
+        if (!pD3D12CreateDevice)
+            return AVERROR_EXTERNAL;
+
+        pD3D11On12CreateDevice = (void*)dlsym(priv->d3d12_dll, "D3D11On12CreateDevice");
+        if (!pD3D11On12CreateDevice)
+            return AVERROR_EXTERNAL;
+
+        pCreateDXGIFactory2 = (void*)dlsym(priv->dxgi_dll, "CreateDXGIFactory2");
+        if (!pCreateDXGIFactory2)
+            return AVERROR_EXTERNAL;
+
+        D3D_FEATURE_LEVEL level = D3D_FEATURE_LEVEL_11_0;
+
+        hr = pD3D12CreateDevice(NULL,
+            &level,
+            &IID_ID3D12Device,
+            &d3d12_device);
+        if (FAILED(hr)) {
+            av_log(ctx, loglevel, "failed to create D3D12 device\n");
+            goto error;
+        }
+
+        hr = pCreateDXGIFactory2(dxgiFactoryFlags, &IID_IDXGIFactory2, &dxgi_factory);
+        if (FAILED(hr)) {
+            av_log(ctx, loglevel, "failed to create DXGI factory object\n");
+            goto error;
+        }
+
+        // TODO: Read up on D3D11on12 for this part ...
+        // NOT Sure if I need to create the command queue and swapchains for this 11on12 device
+
+        // Describe and create the command queue.
+        D3D12_COMMAND_QUEUE_DESC queueDesc = {
+            .Flags = D3D12_COMMAND_QUEUE_FLAG_NONE,
+            .Type = D3D12_COMMAND_LIST_TYPE_DIRECT
+        };
+
+        hr = ID3D12Device_CreateCommandQueue(d3d12_device, &queueDesc, &IID_ID3D12CommandQueue, &hwctx->d3d12_command_queue);
+        if (FAILED(hr)) {
+            av_log(ctx, loglevel, "failed to create D3D12 device command queue\n");
+            goto error;
+        }
+        ID3D12Object_SetName(hwctx->d3d12_command_queue, L"CommandQueue");
+
+        // Describe the swap chain.
+        DXGI_SWAP_CHAIN_DESC1 swapchain_desc = {
+            .BufferCount = hwctx->d3d12_frame_cnt,
+            .Width = hwctx->d3d12_window_width,
+            .Height = hwctx->d3d12_window_height,
+            .Format = DXGI_FORMAT_R8G8B8A8_UNORM,
+            .BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT,
+            .SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD,
+            .SampleDesc.Count = 1
+        };
+
+        hr = IDXGIFactory4_CreateSwapChain(dxgi_factory,
+            (IUnknown*)(hwctx->d3d12_command_queue),
+            (DXGI_SWAP_CHAIN_DESC*)&swapchain_desc,
+            (IDXGISwapChain**)&dxgi_swapchain);
+        if (FAILED(hr)) {
+            av_log(ctx, loglevel, "failed to create DXGI swapchain\n");
+            goto error;
+        }
+
+        // Might need to query interface fpr IDXGISwapShain3
+        // ... ThrowIfFailed(swapChain.As(&m_swapChain));
+
+        UINT frameIndex = IDXGISwapChain3_GetCurrentBackBufferIndex(dxgi_swapchain);
+
+        // end of this TODO section
+
+        // Create an 11 device wrapped around the 12 device and share
+        // 12's command queue.
+        hr = pD3D11On12CreateDevice(
+            (IUnknown*)d3d12_device,
+            D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
+            NULL,
+            0,
+            NULL, // ptr to command queue obj
+            1,
+            0,
+            (ID3D11Device**)&d3d11_device,
+            (ID3D11DeviceContext**)&d3d11_deviceContext,
+            NULL
+        );
+        if (FAILED(hr)) {
+            av_log(ctx, loglevel, "failed to create D3D11on12 device\n");
+            goto error;
+        }
+
+        hr = ID3D11Device_QueryInterface(d3d11_device, &IID_ID3D11On12Device, (void**)&d3d11on12_device);
+        if (FAILED(hr)) {
+            av_log(ctx, loglevel, "failed to query interface for D3D11on12 device\n");
+            goto error;
+        }
+
+        hr = IMFMediaBuffer_QueryInterface(d3d11on12_device, &IID_ID3D11Multithread, (void**)&multithread);
+        if (FAILED(hr)) {
+            av_log(ctx, loglevel, "could not get ID3D11Multithread\n");
+            goto error;
+        }
+
+        hr = ID3D11Multithread_SetMultithreadProtected(multithread, TRUE);
+        if (FAILED(hr)) {
+            av_log(ctx, loglevel, "failed to call ID3D11Multithread::SetMultithreadProtected\n");
+            ID3D11Multithread_Release(multithread);
+            goto error;
+        }
+
+        ID3D11Multithread_Release(multithread);
+    }
+
+    // Add the D3DDeviceManager block from end of function: mf_create_d3d11_device
+    ID3D12Device_Release(d3d12_device);
+    return 0;
+
+error:
+    if (d3d12_device)
+        ID3D12Device_Release(d3d12_device);
+    mf_uninit_d3d(ctx);
+    return AVERROR_EXTERNAL;
+}
+
+/*
+HAL::Surface> GraphicsDevice::CreateSurface2D(std::string name, ResourceUse use, void* handle, uint32_t sub_resource_index) {
+    LockGuard lock(contextLock, contextLockThreadId);
+    HRESULT hResult;
+    ID3D12Resource* d3d12Resource = nullptr;
+    if (CheckFlag(use, ResourceUse::SHARED_OBJECT)) {
+        SSDK_ERR("SHARED_OBJECT not supported");
+    }
+    auto d3dCtx = d3d(graphicsContext.get());
+    V(d3d11On12Device2->UnwrapUnderlyingResource((ID3D11Resource*)handle, d3dCtx->d3dCommandQueue.v.Get(), IID_PPV_ARGS(&d3d12Resource)));
+    ID3D11Texture2D* d3d11Texture = (ID3D11Texture2D*)handle;
+    D3D11_TEXTURE2D_DESC d3d11TextureDesc;
+    d3d11Texture->GetDesc(&d3d11TextureDesc);
+    BitstreamFormat format = TypeUtil::ToBitstreamFormat(PixelFormat(d3d11TextureDesc.Format));
+    uint32_t width = d3d11TextureDesc.Width, height = d3d11TextureDesc.Height;
+    auto d3dTextureHandle = new TextureHandle(nullptr);
+    auto createHandleFn = [=]() {
+        Texture* texture = Texture::createFromHandle(graphicsContext.get(), graphics.get(), d3d12Resource,
+            TypeUtil::ToPixelFormat(format), width, height, 1, 1, TypeUtil::ToImageUsageFlags(use), TEXTURE_TYPE_2D, 1, nullptr);
+        texture->setName(name);
+        d3dTextureHandle->v = texture;
+    };
+    deferredFunctions.push_back({ -1, createHandleFn });
+    auto fence = Fence::create(graphicsContext->device);
+    d3dCtx->d3dCommandQueue.signal(d3d(fence), D3DFence::SIGNALED);
+    TextureInteropSupport s;
+    s.callback = [=]() {
+        HRESULT hResult;
+        V(d3d11On12Device2->ReturnUnderlyingResource((ID3D11Resource*)handle, 0, nullptr, nullptr));
+        ((ID3D11Texture2D*)handle)->Release();
+    };
+    s.fence = fence;
+    s.handle = handle;
+    textureInteropSupportVector.emplace_back(std::move(s));
+    //TODO: call this API after DirectX12 finishes using it
+
+    auto surface = make_shared<NGFXSurface>(this, d3dTextureHandle, name.c_str(), SurfaceType::AREA, use,
+        format, 0, 1, width, height, 1, 0, 1);
+    return surface;
+}
+*/
 
 static int mf_device_init(AVHWDeviceContext *ctx)
 {
     AVMFDeviceContext *hwctx = ctx->hwctx;
     int ret;
 
-    if (hwctx->device_type == AV_MF_NONE) {
-        if (hwctx->d3d11_manager || hwctx->d3d9_manager)
+    switch (hwctx->device_type) {
+    case AV_MF_NONE:
+        if (hwctx->d3d11_manager || hwctx->d3d9_manager || hwctx->d3d12_command_queue)
             return AVERROR(EINVAL);
-    } else if (hwctx->device_type == AV_MF_D3D11) {
-        if (hwctx->d3d9_manager)
+        break;
+
+    case AV_MF_D3D11on12:
+        if (hwctx->d3d9_manager || hwctx->d3d11_manager)
+            return AVERROR(EINVAL);
+        if (!hwctx->d3d12_command_queue && ((ret = mf_create_d3d11on12_device(ctx, AV_LOG_ERROR)) < 0))
+            return ret;
+        break;
+
+    case AV_MF_D3D11:
+        if (hwctx->d3d9_manager || hwctx->d3d12_command_queue)
             return AVERROR(EINVAL);
         if (!hwctx->d3d11_manager && ((ret = mf_create_d3d11_device(ctx, AV_LOG_ERROR)) < 0))
             return ret;
-    } else if (hwctx->device_type == AV_MF_D3D9) {
-        if (hwctx->d3d11_manager)
+        break;
+
+    case AV_MF_D3D9:
+        if (hwctx->d3d11_manager || hwctx->d3d12_command_queue)
             return AVERROR(EINVAL);
         if (!hwctx->d3d9_manager && ((ret = mf_create_d3d9_device(ctx, AV_LOG_ERROR)) < 0))
             return ret;
-    } else if (hwctx->device_type == AV_MF_AUTO) {
-        if (mf_create_d3d11_device(ctx, AV_LOG_VERBOSE) >= 0) {
+        break;
+
+    case AV_MF_AUTO:
+        if (mf_create_d3d11on12_device(ctx, AV_LOG_VERBOSE) >= 0) {
+            hwctx->device_type = AV_MF_D3D11on12;
+        }
+        else if (mf_create_d3d11_device(ctx, AV_LOG_VERBOSE) >= 0) {
             hwctx->device_type = AV_MF_D3D11;
-        } else if (mf_create_d3d9_device(ctx, AV_LOG_VERBOSE) >= 0) {
+        }
+        else if (mf_create_d3d9_device(ctx, AV_LOG_VERBOSE) >= 0) {
             hwctx->device_type = AV_MF_D3D9;
-        } else {
+        }
+        else {
             hwctx->device_type = AV_MF_NONE;
         }
-    } else {
+        break;
+
+    default:
         return AVERROR(EINVAL);
+        break;
     }
 
     return 0;
@@ -384,12 +664,23 @@ static int mf_device_init(AVHWDeviceContext *ctx)
 
 static void mf_device_uninit(AVHWDeviceContext *ctx)
 {
+    AVMFDeviceContext* hwctx = ctx->hwctx;
+
     mf_uninit_d3d(ctx);
+
+    if (hwctx->init_d3d9_device)
+        IDirect3DDevice9_Release(hwctx->init_d3d9_device);
+
+    if (hwctx->init_d3d11_device)
+        ID3D11Device_Release(hwctx->init_d3d11_device);
+
+    if (hwctx->init_d3d12_device)
+        ID3D12Device_Release(hwctx->init_d3d12_device);
 }
 
 static int mf_transfer_get_formats(AVHWFramesContext *ctx,
-                                   enum AVHWFrameTransferDirection dir,
-                                   enum AVPixelFormat **formats)
+    enum AVHWFrameTransferDirection dir,
+    enum AVPixelFormat **formats)
 {
     *formats = av_malloc_array(2, sizeof(*formats));
     if (!*formats)
@@ -402,7 +693,7 @@ static int mf_transfer_get_formats(AVHWFramesContext *ctx,
 }
 
 static int mf_transfer_data_from(AVHWFramesContext *ctx, AVFrame *dst,
-                                    const AVFrame *src)
+    const AVFrame *src)
 {
     IMFSample *sample = (void *)src->data[3];
     HRESULT hr;
@@ -432,7 +723,7 @@ static int mf_transfer_data_from(AVHWFramesContext *ctx, AVFrame *dst,
     // present if hwaccel is used.
     hr = IMFMediaBuffer_QueryInterface(buffer, &IID_IMF2DBuffer, (void **)&buffer_2d);
     if (!FAILED(hr) && (ctx->sw_format == AV_PIX_FMT_NV12 ||
-                        ctx->sw_format == AV_PIX_FMT_P010)) {
+        ctx->sw_format == AV_PIX_FMT_P010)) {
         BYTE *sc = NULL;
         LONG pitch = 0;
 
@@ -467,11 +758,11 @@ static int mf_transfer_data_from(AVHWFramesContext *ctx, AVFrame *dst,
         locked_1d = 1;
 
         av_image_fill_arrays(src_data, src_linesizes, data, dst->format,
-                             ctx->width, ctx->height, 1);
+            ctx->width, ctx->height, 1);
     }
 
     av_image_copy(dst->data, dst->linesize, (void *)src_data, src_linesizes,
-                  ctx->sw_format, copy_w, copy_h);
+        ctx->sw_format, copy_w, copy_h);
 
 done:
 

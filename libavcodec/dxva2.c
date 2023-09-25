@@ -127,6 +127,13 @@ static int dxva_get_decoder_configuration(AVCodecContext *avctx,
             guidConfigBitstreamEncryption = cfg->guidConfigBitstreamEncryption;
         }
 #endif
+#if CONFIG_D3D12VA
+        if (sctx->pix_fmt == AV_PIX_FMT_D3D11) {
+            D3D11_VIDEO_DECODER_CONFIG* cfg = &((D3D11_VIDEO_DECODER_CONFIG*)cfg_list)[i];
+            ConfigBitstreamRaw = cfg->ConfigBitstreamRaw;
+            guidConfigBitstreamEncryption = cfg->guidConfigBitstreamEncryption;
+        }
+#endif
 #if CONFIG_DXVA2
         if (sctx->pix_fmt == AV_PIX_FMT_DXVA2_VLD) {
             DXVA2_ConfigPictureDecode *cfg = &((DXVA2_ConfigPictureDecode *)cfg_list)[i];

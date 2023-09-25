@@ -11,6 +11,7 @@ HEADERS = ac3_parser.h                                                  \
           codec_desc.h                                                  \
           codec_id.h                                                    \
           codec_par.h                                                   \
+          d3d12va.h                                                     \
           d3d11va.h                                                     \
           defs.h                                                        \
           dirac.h                                                       \
@@ -38,6 +39,7 @@ OBJS = ac3_parser.o                                                     \
        bsf.o                                                            \
        codec_desc.o                                                     \
        codec_par.o                                                      \
+       d3d12va.o                                                        \
        d3d11va.o                                                        \
        decode.o                                                         \
        dirac.o                                                          \
@@ -970,6 +972,7 @@ OBJS-$(CONFIG_ADPCM_YAMAHA_ENCODER)       += adpcmenc.o adpcm_data.o
 OBJS-$(CONFIG_ADPCM_ZORK_DECODER)         += adpcm.o adpcm_data.o
 
 # hardware accelerators
+OBJS-$(CONFIG_D3D12VA)                    += dxva2.o
 OBJS-$(CONFIG_D3D11VA)                    += dxva2.o
 OBJS-$(CONFIG_DXVA2)                      += dxva2.o
 OBJS-$(CONFIG_NVDEC)                      += nvdec.o
@@ -978,6 +981,7 @@ OBJS-$(CONFIG_VIDEOTOOLBOX)               += videotoolbox.o
 OBJS-$(CONFIG_VDPAU)                      += vdpau.o
 
 OBJS-$(CONFIG_AV1_D3D11VA_HWACCEL)        += dxva2_av1.o
+OBJS-$(CONFIG_AV1_D3D12VA_HWACCEL)        += dxva2_av1.o
 OBJS-$(CONFIG_AV1_DXVA2_HWACCEL)          += dxva2_av1.o
 OBJS-$(CONFIG_AV1_NVDEC_HWACCEL)          += nvdec_av1.o
 OBJS-$(CONFIG_AV1_VAAPI_HWACCEL)          += vaapi_av1.o
@@ -985,6 +989,7 @@ OBJS-$(CONFIG_AV1_VDPAU_HWACCEL)          += vdpau_av1.o
 OBJS-$(CONFIG_H263_VAAPI_HWACCEL)         += vaapi_mpeg4.o
 OBJS-$(CONFIG_H263_VIDEOTOOLBOX_HWACCEL)  += videotoolbox.o
 OBJS-$(CONFIG_H264_D3D11VA_HWACCEL)       += dxva2_h264.o
+OBJS-$(CONFIG_H264_D3D12VA_HWACCEL)       += dxva2_h264.o
 OBJS-$(CONFIG_H264_DXVA2_HWACCEL)         += dxva2_h264.o
 OBJS-$(CONFIG_H264_NVDEC_HWACCEL)         += nvdec_h264.o
 OBJS-$(CONFIG_H264_QSV_HWACCEL)           += qsvdec.o
@@ -992,6 +997,7 @@ OBJS-$(CONFIG_H264_VAAPI_HWACCEL)         += vaapi_h264.o
 OBJS-$(CONFIG_H264_VDPAU_HWACCEL)         += vdpau_h264.o
 OBJS-$(CONFIG_H264_VIDEOTOOLBOX_HWACCEL)  += videotoolbox.o
 OBJS-$(CONFIG_HEVC_D3D11VA_HWACCEL)       += dxva2_hevc.o
+OBJS-$(CONFIG_HEVC_D3D12VA_HWACCEL)       += dxva2_hevc.o
 OBJS-$(CONFIG_HEVC_DXVA2_HWACCEL)         += dxva2_hevc.o
 OBJS-$(CONFIG_HEVC_NVDEC_HWACCEL)         += nvdec_hevc.o
 OBJS-$(CONFIG_HEVC_QSV_HWACCEL)           += qsvdec.o
@@ -1003,6 +1009,7 @@ OBJS-$(CONFIG_MPEG1_NVDEC_HWACCEL)        += nvdec_mpeg12.o
 OBJS-$(CONFIG_MPEG1_VDPAU_HWACCEL)        += vdpau_mpeg12.o
 OBJS-$(CONFIG_MPEG1_VIDEOTOOLBOX_HWACCEL) += videotoolbox.o
 OBJS-$(CONFIG_MPEG2_D3D11VA_HWACCEL)      += dxva2_mpeg2.o
+OBJS-$(CONFIG_MPEG2_D3D12VA_HWACCEL)      += dxva2_mpeg2.o
 OBJS-$(CONFIG_MPEG2_DXVA2_HWACCEL)        += dxva2_mpeg2.o
 OBJS-$(CONFIG_MPEG2_NVDEC_HWACCEL)        += nvdec_mpeg12.o
 OBJS-$(CONFIG_MPEG2_QSV_HWACCEL)          += qsvdec.o
@@ -1014,6 +1021,7 @@ OBJS-$(CONFIG_MPEG4_VAAPI_HWACCEL)        += vaapi_mpeg4.o
 OBJS-$(CONFIG_MPEG4_VDPAU_HWACCEL)        += vdpau_mpeg4.o
 OBJS-$(CONFIG_MPEG4_VIDEOTOOLBOX_HWACCEL) += videotoolbox.o
 OBJS-$(CONFIG_VC1_D3D11VA_HWACCEL)        += dxva2_vc1.o
+OBJS-$(CONFIG_VC1_D3D12VA_HWACCEL)        += dxva2_vc1.o
 OBJS-$(CONFIG_VC1_DXVA2_HWACCEL)          += dxva2_vc1.o
 OBJS-$(CONFIG_VC1_NVDEC_HWACCEL)          += nvdec_vc1.o
 OBJS-$(CONFIG_VC1_QSV_HWACCEL)            += qsvdec.o
@@ -1022,6 +1030,7 @@ OBJS-$(CONFIG_VC1_VDPAU_HWACCEL)          += vdpau_vc1.o
 OBJS-$(CONFIG_VP8_NVDEC_HWACCEL)          += nvdec_vp8.o
 OBJS-$(CONFIG_VP8_VAAPI_HWACCEL)          += vaapi_vp8.o
 OBJS-$(CONFIG_VP9_D3D11VA_HWACCEL)        += dxva2_vp9.o
+OBJS-$(CONFIG_VP9_D3D12VA_HWACCEL)        += dxva2_vp9.o
 OBJS-$(CONFIG_VP9_DXVA2_HWACCEL)          += dxva2_vp9.o
 OBJS-$(CONFIG_VP9_NVDEC_HWACCEL)          += nvdec_vp9.o
 OBJS-$(CONFIG_VP9_VAAPI_HWACCEL)          += vaapi_vp9.o
@@ -1261,6 +1270,7 @@ SKIPHEADERS                            += %_tablegen.h                  \
 
 SKIPHEADERS-$(CONFIG_AMF)              += amfenc.h
 SKIPHEADERS-$(CONFIG_D3D11VA)          += d3d11va.h dxva2_internal.h
+SKIPHEADERS-$(CONFIG_D3D12VA)          += d3d12va.h dxva2_internal.h
 SKIPHEADERS-$(CONFIG_DXVA2)            += dxva2.h dxva2_internal.h
 SKIPHEADERS-$(CONFIG_JNI)              += ffjni.h
 SKIPHEADERS-$(CONFIG_LIBJXL)           += libjxl.h
