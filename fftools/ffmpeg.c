@@ -4539,6 +4539,11 @@ int main(int argc, char **argv)
     if (ret < 0)
         exit_program(1);
 
+#if (defined(_WIN32))
+    if (attach_debugger == 1)
+        while (!IsDebuggerPresent()) Sleep(100);
+#endif
+
     if (nb_output_files <= 0 && nb_input_files == 0) {
         show_usage();
         av_log(NULL, AV_LOG_WARNING, "Use -h to get full help or, even better, run 'man %s'\n", program_name);

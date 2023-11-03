@@ -168,6 +168,7 @@ int copy_ts           = 0;
 int start_at_zero     = 0;
 int copy_tb           = -1;
 int debug_ts          = 0;
+int attach_debugger = 0;
 int exit_on_error     = 0;
 int abort_on_flags    = 0;
 int print_stats       = -1;
@@ -179,7 +180,6 @@ int filter_complex_nbthreads = 0;
 int vstats_version = 2;
 int auto_conversion_filters = 1;
 int64_t stats_period = 500000;
-
 
 static int file_overwrite     = 0;
 static int no_file_overwrite  = 0;
@@ -3928,6 +3928,8 @@ const OptionDef options[] = {
     { "autoscale",        HAS_ARG | OPT_BOOL | OPT_SPEC |
                           OPT_EXPERT | OPT_OUTPUT,                               { .off = OFFSET(autoscale) },
         "automatically insert a scale filter at the end of the filter graph" },
+    { "attachdbg",        OPT_BOOL | OPT_EXPERT,                                 { &attach_debugger },
+        "attach debugger to ffmpeg" },
 
     /* audio options */
     { "aframes",        OPT_AUDIO | HAS_ARG  | OPT_PERFILE | OPT_OUTPUT,           { .func_arg = opt_audio_frames },
