@@ -370,15 +370,6 @@ enum AVPixelFormat {
     /**
      * Hardware surfaces for Direct3D 12.
      *
-     * data[0] contains a ID3D12Resource pointer.
-     * data[1] contains the resource array index of the frame as intptr_t.
-     * data[2] contains the sync context for current resource
-     */
-    AV_PIX_FMT_D3D12,
-
-    /**
-     * Hardware surfaces for Direct3D 12.
-     *
      * data[0] points to an AVD3D12VAFrame
      */
     AV_PIX_FMT_D3D12,
