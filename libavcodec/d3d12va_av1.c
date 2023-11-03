@@ -203,11 +203,11 @@ static int d3d12va_av1_decode_uninit(AVCodecContext *avctx)
 }
 
 #if CONFIG_AV1_D3D12VA_HWACCEL
-const FFHWAccel ff_av1_d3d12va_hwaccel = {
-    .p.name               = "av1_d3d12va",
-    .p.type               = AVMEDIA_TYPE_VIDEO,
-    .p.id                 = AV_CODEC_ID_AV1,
-    .p.pix_fmt            = AV_PIX_FMT_D3D12,
+const AVHWAccel ff_av1_d3d12va_hwaccel = {
+    .name                 = "av1_d3d12va",
+    .type                 = AVMEDIA_TYPE_VIDEO,
+    .id                   = AV_CODEC_ID_AV1,
+    .pix_fmt              = AV_PIX_FMT_D3D12,
     .init                 = d3d12va_av1_decode_init,
     .uninit               = d3d12va_av1_decode_uninit,
     .start_frame          = d3d12va_av1_start_frame,
