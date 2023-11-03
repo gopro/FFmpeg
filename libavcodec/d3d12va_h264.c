@@ -193,11 +193,11 @@ static int d3d12va_h264_decode_init(AVCodecContext *avctx)
 }
 
 #if CONFIG_H264_D3D12VA_HWACCEL
-const FFHWAccel ff_h264_d3d12va_hwaccel = {
-    .p.name               = "h264_d3d12va",
-    .p.type               = AVMEDIA_TYPE_VIDEO,
-    .p.id                 = AV_CODEC_ID_H264,
-    .p.pix_fmt            = AV_PIX_FMT_D3D12,
+const AVHWAccel ff_h264_d3d12va_hwaccel = {
+    .name                 = "h264_d3d12va",
+    .type                 = AVMEDIA_TYPE_VIDEO,
+    .id                   = AV_CODEC_ID_H264,
+    .pix_fmt              = AV_PIX_FMT_D3D12,
     .init                 = d3d12va_h264_decode_init,
     .uninit               = ff_d3d12va_decode_uninit,
     .start_frame          = d3d12va_h264_start_frame,

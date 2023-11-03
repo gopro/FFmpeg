@@ -159,11 +159,11 @@ static int d3d12va_vp9_decode_init(AVCodecContext *avctx)
 }
 
 #if CONFIG_VP9_D3D12VA_HWACCEL
-const FFHWAccel ff_vp9_d3d12va_hwaccel = {
-    .p.name               = "vp9_d3d12va",
-    .p.type               = AVMEDIA_TYPE_VIDEO,
-    .p.id                 = AV_CODEC_ID_VP9,
-    .p.pix_fmt            = AV_PIX_FMT_D3D12,
+const AVHWAccel ff_vp9_d3d12va_hwaccel = {
+    .name                 = "vp9_d3d12va",
+    .type                 = AVMEDIA_TYPE_VIDEO,
+    .id                   = AV_CODEC_ID_VP9,
+    .pix_fmt              = AV_PIX_FMT_D3D12,
     .init                 = d3d12va_vp9_decode_init,
     .uninit               = ff_d3d12va_decode_uninit,
     .start_frame          = d3d12va_vp9_start_frame,

@@ -199,11 +199,11 @@ static int d3d12va_hevc_decode_init(AVCodecContext *avctx)
 }
 
 #if CONFIG_HEVC_D3D12VA_HWACCEL
-const FFHWAccel ff_hevc_d3d12va_hwaccel = {
-    .p.name               = "hevc_d3d12va",
-    .p.type               = AVMEDIA_TYPE_VIDEO,
-    .p.id                 = AV_CODEC_ID_HEVC,
-    .p.pix_fmt            = AV_PIX_FMT_D3D12,
+const AVHWAccel ff_hevc_d3d12va_hwaccel = {
+    .name                 = "hevc_d3d12va",
+    .type                 = AVMEDIA_TYPE_VIDEO,
+    .id                   = AV_CODEC_ID_HEVC,
+    .pix_fmt              = AV_PIX_FMT_D3D12,
     .init                 = d3d12va_hevc_decode_init,
     .uninit               = ff_d3d12va_decode_uninit,
     .start_frame          = d3d12va_hevc_start_frame,
