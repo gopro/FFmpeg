@@ -520,6 +520,12 @@ int ff_d3d12va_common_end_frame(AVCodecContext *avctx, AVFrame *frame,
     if (ret < 0)
         return ret;
 
+    if (ctx->sync_ctx) {
+        ret = d3d12va_wait_idle(ctx->sync_ctx);
+        if (ret < 0)
+            return ret;
+    }
+
     return 0;
 
 fail:
