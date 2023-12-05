@@ -65,6 +65,7 @@ version 5.1.3:
 - lavf/async: Fix ring_write return value
 - avcodec/audiotoolboxenc: return AVERROR_EXTERNAL immediately when encode error
 - avcodec/libjxlenc: avoid hard failure with unspecified primaries
+- D3D12VA hardware accelerated H264, HEVC, VP9, AV1, MPEG-2 and VC1 decoding
 
 version 5.1.2:
 - avcodec/dstdec: Check for overflow in build_filter()
