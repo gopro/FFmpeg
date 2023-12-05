@@ -502,6 +502,21 @@ static int get_pixel_format(AVCodecContext *avctx)
     av_log(avctx, AV_LOG_DEBUG, "AV1 decode get format: %s.\n",
            av_get_pix_fmt_name(pix_fmt));
 
+static int get_pixel_format(AVCodecContext *avctx)
+{
+    AV1DecContext *s = avctx->priv_data;
+    const AV1RawSequenceHeader *seq = s->raw_seq;
+    int ret;
+    enum AVPixelFormat pix_fmt = get_sw_pixel_format(avctx, seq);
+#define HWACCEL_MAX (CONFIG_AV1_DXVA2_HWACCEL + \
+                     CONFIG_AV1_D3D11VA_HWACCEL * 2 + \
+                     CONFIG_AV1_D3D12VA_HWACCEL + \
+                     CONFIG_AV1_NVDEC_HWACCEL + \
+                     CONFIG_AV1_VAAPI_HWACCEL + \
+                     CONFIG_AV1_VDPAU_HWACCEL + \
+                     CONFIG_AV1_VULKAN_HWACCEL)
+    enum AVPixelFormat pix_fmts[HWACCEL_MAX + 2], *fmtp = pix_fmts;
+
     if (pix_fmt == AV_PIX_FMT_NONE)
         return -1;
 
@@ -513,6 +528,9 @@ static int get_pixel_format(AVCodecContext *avctx)
 #if CONFIG_AV1_D3D11VA_HWACCEL
         *fmtp++ = AV_PIX_FMT_D3D11VA_VLD;
         *fmtp++ = AV_PIX_FMT_D3D11;
+#endif
+#if CONFIG_AV1_D3D12VA_HWACCEL
+        *fmtp++ = AV_PIX_FMT_D3D12;
 #endif
 #if CONFIG_AV1_NVDEC_HWACCEL
         *fmtp++ = AV_PIX_FMT_CUDA;
@@ -531,6 +549,9 @@ static int get_pixel_format(AVCodecContext *avctx)
 #if CONFIG_AV1_D3D11VA_HWACCEL
         *fmtp++ = AV_PIX_FMT_D3D11VA_VLD;
         *fmtp++ = AV_PIX_FMT_D3D11;
+#endif
+#if CONFIG_AV1_D3D12VA_HWACCEL
+        *fmtp++ = AV_PIX_FMT_D3D12;
 #endif
 #if CONFIG_AV1_NVDEC_HWACCEL
         *fmtp++ = AV_PIX_FMT_CUDA;
@@ -1271,6 +1292,9 @@ const FFCodec ff_av1_decoder = {
 #endif
 #if CONFIG_AV1_D3D11VA2_HWACCEL
         HWACCEL_D3D11VA2(av1),
+#endif
+#if CONFIG_AV1_D3D12VA_HWACCEL
+        HWACCEL_D3D12VA(av1),
 #endif
 #if CONFIG_AV1_NVDEC_HWACCEL
         HWACCEL_NVDEC(av1),
