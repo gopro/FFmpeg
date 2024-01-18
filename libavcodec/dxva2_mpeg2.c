@@ -48,16 +48,16 @@ void ff_dxva2_mpeg2_fill_picture_parameters(AVCodecContext *avctx,
     int is_field = s->picture_structure != PICT_FRAME;
 
     memset(pp, 0, sizeof(*pp));
-    pp->wDecodedPictureIndex         = ff_dxva2_get_surface_index(avctx, ctx, current_picture->f);
     pp->wDeblockedPictureIndex       = 0;
     if (s->pict_type != AV_PICTURE_TYPE_I)
-        pp->wForwardRefPictureIndex  = ff_dxva2_get_surface_index(avctx, ctx, s->last_picture.f);
+        pp->wForwardRefPictureIndex  = ff_dxva2_get_surface_index(avctx, ctx, s->last_picture.f, 0);
     else
         pp->wForwardRefPictureIndex  = 0xffff;
     if (s->pict_type == AV_PICTURE_TYPE_B)
-        pp->wBackwardRefPictureIndex = ff_dxva2_get_surface_index(avctx, ctx, s->next_picture.f);
+        pp->wBackwardRefPictureIndex = ff_dxva2_get_surface_index(avctx, ctx, s->next_picture.f, 0);
     else
         pp->wBackwardRefPictureIndex = 0xffff;
+    pp->wDecodedPictureIndex         = ff_dxva2_get_surface_index(avctx, ctx, current_picture->f, 1);
     pp->wPicWidthInMBminus1          = s->mb_width  - 1;
     pp->wPicHeightInMBminus1         = (s->mb_height >> is_field) - 1;
     pp->bMacroblockWidthMinus1       = 15;
@@ -263,7 +263,7 @@ static int dxva2_mpeg2_start_frame(AVCodecContext *avctx,
 
     if (!DXVA_CONTEXT_VALID(avctx, ctx))
         return -1;
-    assert(ctx_pic);
+    av_assert0(ctx_pic);
 
     ff_dxva2_mpeg2_fill_picture_parameters(avctx, ctx, &ctx_pic->pp);
     ff_dxva2_mpeg2_fill_quantization_matrices(avctx, ctx, &ctx_pic->qm);

@@ -27,12 +27,13 @@
  * @file
  * An API-specific header for AV_HWDEVICE_TYPE_D3D12VA.
  *
- * This API does not support dynamic frame pools. AVHWFramesContext.pool must
- * contain AVBufferRefs whose data pointer points to an AVD3D12FrameDescriptor struct.
+ * AVHWFramesContext.pool must contain AVBufferRefs whose
+ * data pointer points to an AVD3D12VAFrame struct.
  */
 #include <stdint.h>
 #include <initguid.h>
 #include <d3d12.h>
+#include <d3d12sdklayers.h>
 #include <d3d12video.h>
 
 /**
@@ -59,6 +60,21 @@ typedef struct AVD3D12VADeviceContext {
      * and it does not matter whether it was user-allocated.
      */
     ID3D12VideoDevice *video_device;
+
+    /**
+     * Callbacks for locking. They protect access to the internal staging
+     * texture (for av_hwframe_transfer_data() calls). They do NOT protect
+     * access to hwcontext or decoder state in general.
+     *
+     * If unset on init, the hwcontext implementation will set them to use an
+     * internal mutex.
+     *
+     * The underlying lock must be recursive. lock_ctx is for free use by the
+     * locking implementation.
+     */
+    void (*lock)(void *lock_ctx);
+    void (*unlock)(void *lock_ctx);
+    void *lock_ctx;
 } AVD3D12VADeviceContext;
 
 /**
@@ -72,7 +88,8 @@ typedef struct AVD3D12VASyncContext {
     ID3D12Fence *fence;
 
     /**
-     * A handle to the event object
+     * A handle to the event object that's raised when the fence
+     * reaches a certain value.
      */
     HANDLE event;
 
@@ -95,17 +112,11 @@ typedef struct AVD3D12VAFrame {
     ID3D12Resource *texture;
 
     /**
-     * The index into the array texture element representing the frame
-     */
-    intptr_t index;
-
-    /**
      * The sync context for the texture
      *
-     * Use av_d3d12va_wait_idle(sync_ctx) to ensure the decoding or encoding have been finised
      * @see: https://learn.microsoft.com/en-us/windows/win32/medfound/direct3d-12-video-overview#directx-12-fences
      */
-    AVD3D12VASyncContext *sync_ctx;
+    AVD3D12VASyncContext sync_ctx;
 } AVD3D12VAFrame;
 
 /**
@@ -114,28 +125,10 @@ typedef struct AVD3D12VAFrame {
  */
 typedef struct AVD3D12VAFramesContext {
     /**
-     * This field is not able to be user-allocated at the present.
+     * DXGI_FORMAT format. MUST be compatible with the pixel format.
+     * If unset, will be automatically set.
      */
-    AVD3D12VAFrame *texture_infos;
+    DXGI_FORMAT format;
 } AVD3D12VAFramesContext;
-
-/**
- * @brief Map sw pixel format to d3d12 format
- *
- * @return d3d12 specified format
- */
-DXGI_FORMAT av_d3d12va_map_sw_to_hw_format(enum AVPixelFormat pix_fmt);
-
-/**
- * @brief Allocate an AVD3D12VASyncContext
- *
- * @return Error code (ret < 0 if failed)
- */
-int av_d3d12va_sync_context_alloc(AVD3D12VADeviceContext *ctx, AVD3D12VASyncContext **sync_ctx);
-
-/**
- * @brief Free an AVD3D12VASyncContext
- */
-void av_d3d12va_sync_context_free(AVD3D12VASyncContext **sync_ctx);
 
 #endif /* AVUTIL_HWCONTEXT_D3D12VA_H */

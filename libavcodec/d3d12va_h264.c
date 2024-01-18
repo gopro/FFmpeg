@@ -60,7 +60,9 @@ static int d3d12va_h264_start_frame(AVCodecContext *avctx,
     if (!ctx)
         return -1;
 
-    assert(ctx_pic);
+    av_assert0(ctx_pic);
+
+    ctx->used_mask = 0;
 
     ff_dxva2_h264_fill_picture_parameters(avctx, (AVDXVAContext *)ctx, &ctx_pic->pp);
 
@@ -110,7 +112,7 @@ static int update_input_arguments(AVCodecContext *avctx, D3D12_VIDEO_DECODE_INPU
     const H264Picture        *current_picture = h->cur_pic_ptr;
     H264DecodePictureContext *ctx_pic         = current_picture->hwaccel_picture_private;
 
-    int i, index;
+    int i;
     uint8_t *mapped_data, *mapped_ptr;
     DXVA_Slice_H264_Short *slice;
     D3D12_VIDEO_DECODE_FRAME_ARGUMENT *args;
@@ -151,14 +153,6 @@ static int update_input_arguments(AVCodecContext *avctx, D3D12_VIDEO_DECODE_INPU
     args->Size  = sizeof(DXVA_Slice_H264_Short) * ctx_pic->slice_count;
     args->pData = ctx_pic->slice_short;
 
-    index = ctx_pic->pp.CurrPic.Index7Bits;
-    ctx->ref_resources[index] = frames_hwctx->texture_infos[index].texture;
-    for (i = 0; i < FF_ARRAY_ELEMS(ctx_pic->pp.RefFrameList); i++) {
-        index = ctx_pic->pp.RefFrameList[i].Index7Bits;
-        if (index != 0x7f)
-            ctx->ref_resources[index] = frames_hwctx->texture_infos[index].texture;
-    }
-
     return 0;
 }
 
@@ -186,8 +180,11 @@ static int d3d12va_h264_end_frame(AVCodecContext *avctx)
 static int d3d12va_h264_decode_init(AVCodecContext *avctx)
 {
     D3D12VADecodeContext *ctx = D3D12VA_DECODE_CONTEXT(avctx);
+    DXVA_PicParams_H264 pp;
 
     ctx->cfg.DecodeProfile = D3D12_VIDEO_DECODE_PROFILE_H264;
+
+    ctx->max_num_ref = FF_ARRAY_ELEMS(pp.RefFrameList) + 1;
 
     return ff_d3d12va_decode_init(avctx);
 }

@@ -134,9 +134,14 @@ typedef struct FFDXVASharedContext {
                                                  DXVA_CONTEXT_CFG(avctx, ctx)     && \
                                                  (ff_dxva2_is_d3d11(avctx) || DXVA2_VAR(ctx, surface_count)))
 
+#if CONFIG_D3D12VA
+unsigned ff_d3d12va_get_surface_index(const AVCodecContext *avctx,
+                                      D3D12VADecodeContext *ctx, const AVFrame *frame,
+                                      int curr);
+#endif
+
 unsigned ff_dxva2_get_surface_index(const AVCodecContext *avctx,
-                                    const AVDXVAContext *,
-                                    const AVFrame *frame);
+                                    AVDXVAContext *, const AVFrame *frame, int curr);
 
 int ff_dxva2_commit_buffer(AVCodecContext *, AVDXVAContext *,
                            DECODER_BUFFER_DESC *,

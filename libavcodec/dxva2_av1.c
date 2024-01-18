@@ -75,7 +75,6 @@ int ff_dxva2_av1_fill_picture_parameters(const AVCodecContext *avctx, AVDXVACont
     pp->max_width  = seq->max_frame_width_minus_1 + 1;
     pp->max_height = seq->max_frame_height_minus_1 + 1;
 
-    pp->CurrPicTextureIndex = ff_dxva2_get_surface_index(avctx, ctx, h->cur_frame.f);
     pp->superres_denom      = frame_header->use_superres ? frame_header->coded_denom + AV1_SUPERRES_DENOM_MIN : AV1_SUPERRES_NUM;
     pp->bitdepth            = get_bit_depth_from_seq(seq);
     pp->seq_profile         = seq->seq_profile;
@@ -151,8 +150,10 @@ int ff_dxva2_av1_fill_picture_parameters(const AVCodecContext *avctx, AVDXVACont
     for (i = 0; i < AV1_NUM_REF_FRAMES; i++) {
         AVFrame *ref_frame = h->ref[i].f;
         if (ref_frame->buf[0])
-            pp->RefFrameMapTextureIndex[i] = ff_dxva2_get_surface_index(avctx, ctx, ref_frame);
+            pp->RefFrameMapTextureIndex[i] = ff_dxva2_get_surface_index(avctx, ctx, ref_frame, 0);
     }
+
+    pp->CurrPicTextureIndex = ff_dxva2_get_surface_index(avctx, ctx, h->cur_frame.f, 1);
 
     /* Loop filter parameters */
     pp->loop_filter.filter_level[0]        = frame_header->loop_filter_level[0];

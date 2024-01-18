@@ -54,8 +54,6 @@ int ff_dxva2_vp9_fill_picture_parameters(const AVCodecContext *avctx, AVDXVACont
 
     memset(pp, 0, sizeof(*pp));
 
-    fill_picture_entry(&pp->CurrPic, ff_dxva2_get_surface_index(avctx, ctx, h->frames[CUR_FRAME].tf.f), 0);
-
     pp->profile = h->h.profile;
     pp->wFormatAndPictureInfoFlags = ((h->h.keyframe == 0)   <<  0) |
                                      ((h->h.invisible == 0)  <<  1) |
@@ -81,7 +79,7 @@ int ff_dxva2_vp9_fill_picture_parameters(const AVCodecContext *avctx, AVDXVACont
 
     for (i = 0; i < 8; i++) {
         if (h->refs[i].f->buf[0]) {
-            fill_picture_entry(&pp->ref_frame_map[i], ff_dxva2_get_surface_index(avctx, ctx, h->refs[i].f), 0);
+            fill_picture_entry(&pp->ref_frame_map[i], ff_dxva2_get_surface_index(avctx, ctx, h->refs[i].f, 0), 0);
             pp->ref_frame_coded_width[i]  = h->refs[i].f->width;
             pp->ref_frame_coded_height[i] = h->refs[i].f->height;
         } else
@@ -91,12 +89,14 @@ int ff_dxva2_vp9_fill_picture_parameters(const AVCodecContext *avctx, AVDXVACont
     for (i = 0; i < 3; i++) {
         uint8_t refidx = h->h.refidx[i];
         if (h->refs[refidx].f->buf[0])
-            fill_picture_entry(&pp->frame_refs[i], ff_dxva2_get_surface_index(avctx, ctx, h->refs[refidx].f), 0);
+            fill_picture_entry(&pp->frame_refs[i], ff_dxva2_get_surface_index(avctx, ctx, h->refs[refidx].f, 0), 0);
         else
             pp->frame_refs[i].bPicEntry = 0xFF;
 
         pp->ref_frame_sign_bias[i + 1] = h->h.signbias[i];
     }
+
+    fill_picture_entry(&pp->CurrPic, ff_dxva2_get_surface_index(avctx, ctx, h->frames[CUR_FRAME].tf.f, 1), 0);
 
     pp->filter_level    = h->h.filter.level;
     pp->sharpness_level = h->h.filter.sharpness;

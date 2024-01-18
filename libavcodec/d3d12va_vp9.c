@@ -56,6 +56,8 @@ static int d3d12va_vp9_start_frame(AVCodecContext *avctx, av_unused const uint8_
 
     av_assert0(ctx_pic);
 
+    ctx->used_mask = 0;
+
     if (ff_dxva2_vp9_fill_picture_parameters(avctx, (AVDXVAContext *)ctx, &ctx_pic->pp) < 0)
         return -1;
 
@@ -90,7 +92,6 @@ static int update_input_arguments(AVCodecContext *avctx, D3D12_VIDEO_DECODE_INPU
     const VP9SharedContext  *h       = avctx->priv_data;
     VP9DecodePictureContext *ctx_pic = h->frames[CUR_FRAME].hwaccel_picture_private;
 
-    int index;
     uint8_t *mapped_data;
     D3D12_VIDEO_DECODE_FRAME_ARGUMENT *args;
 
@@ -114,15 +115,6 @@ static int update_input_arguments(AVCodecContext *avctx, D3D12_VIDEO_DECODE_INPU
         .Size    = ctx_pic->slice.SliceBytesInBuffer,
     };
 
-    index = ctx_pic->pp.CurrPic.Index7Bits;
-    ctx->ref_resources[index] = frames_hwctx->texture_infos[index].texture;
-
-    for (int i = 0; i < FF_ARRAY_ELEMS(ctx_pic->pp.frame_refs); i++) {
-        index = ctx_pic->pp.frame_refs[i].Index7Bits;
-        if (index != 0x7f)
-            ctx->ref_resources[index] = frames_hwctx->texture_infos[index].texture;
-    }
-
     return 0;
 }
 
@@ -141,6 +133,7 @@ static int d3d12va_vp9_end_frame(AVCodecContext *avctx)
 static int d3d12va_vp9_decode_init(AVCodecContext *avctx)
 {
     D3D12VADecodeContext *ctx = D3D12VA_DECODE_CONTEXT(avctx);
+    DXVA_PicParams_VP9 pp;
 
     switch (avctx->profile) {
     case FF_PROFILE_VP9_2:
@@ -154,6 +147,8 @@ static int d3d12va_vp9_decode_init(AVCodecContext *avctx)
         ctx->cfg.DecodeProfile = D3D12_VIDEO_DECODE_PROFILE_VP9;
         break;
     };
+
+    ctx->max_num_ref = FF_ARRAY_ELEMS(pp.ref_frame_map) + 1;
 
     return ff_d3d12va_decode_init(avctx);
 }

@@ -54,6 +54,8 @@ static int d3d12va_av1_start_frame(AVCodecContext *avctx, av_unused const uint8_
 
     av_assert0(ctx_pic);
 
+    ctx->used_mask = 0;
+
     if (ff_dxva2_av1_fill_picture_parameters(avctx, (AVDXVAContext *)ctx, &ctx_pic->pp) < 0)
         return -1;
 
@@ -111,8 +113,6 @@ static int update_input_arguments(AVCodecContext *avctx, D3D12_VIDEO_DECODE_INPU
     AVD3D12VAFramesContext  *frames_hwctx = frames_ctx->hwctx;
     const AV1DecContext     *h            = avctx->priv_data;
     AV1DecodePictureContext *ctx_pic      = h->cur_frame.hwaccel_picture_private;
-
-    int index;
     uint8_t *mapped_data;
 
     D3D12_VIDEO_DECODE_FRAME_ARGUMENT *args = &input_args->FrameArguments[input_args->NumFrameArguments++];
@@ -134,15 +134,6 @@ static int update_input_arguments(AVCodecContext *avctx, D3D12_VIDEO_DECODE_INPU
     memcpy(mapped_data, ctx_pic->bitstream, ctx_pic->bitstream_size);
 
     ID3D12Resource_Unmap(buffer, 0, NULL);
-
-    index = ctx_pic->pp.CurrPicTextureIndex;
-    ctx->ref_resources[index] = frames_hwctx->texture_infos[index].texture;
-
-    for (int i = 0; i < FF_ARRAY_ELEMS(ctx_pic->pp.RefFrameMapTextureIndex); i++) {
-        index = ctx_pic->pp.RefFrameMapTextureIndex[i];
-        if (index != 0xFF)
-            ctx->ref_resources[index] = frames_hwctx->texture_infos[index].texture;
-    }
 
     return 0;
 }
@@ -169,6 +160,7 @@ static int d3d12va_av1_decode_init(AVCodecContext *avctx)
     D3D12VADecodeContext    *ctx     = D3D12VA_DECODE_CONTEXT(avctx);
     D3D12AV1DecodeContext   *av1_ctx = D3D12_AV1_DECODE_CONTEXT(avctx);
     AV1DecodePictureContext *ctx_pic = h->cur_frame.hwaccel_picture_private;
+    DXVA_PicParams_AV1 pp;
 
     int ret;
 
@@ -176,6 +168,8 @@ static int d3d12va_av1_decode_init(AVCodecContext *avctx)
         return AVERROR(EINVAL);
 
     ctx->cfg.DecodeProfile = D3D12_VIDEO_DECODE_PROFILE_AV1_PROFILE0;
+
+    ctx->max_num_ref = FF_ARRAY_ELEMS(pp.RefFrameMapTextureIndex) + 1;
 
     ret = ff_d3d12va_decode_init(avctx);
     if (ret < 0)

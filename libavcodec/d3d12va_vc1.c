@@ -56,6 +56,8 @@ static int d3d12va_vc1_start_frame(AVCodecContext *avctx, av_unused const uint8_
 
     av_assert0(ctx_pic);
 
+    ctx->used_mask = 0;
+
     ff_dxva2_vc1_fill_picture_parameters(avctx, (AVDXVAContext *)ctx, &ctx_pic->pp);
     ctx_pic->pp.wDeblockedPictureIndex = INVALID_REF;
 
@@ -150,10 +152,6 @@ static int update_input_arguments(AVCodecContext *avctx, D3D12_VIDEO_DECODE_INPU
         .Size    = mapped_ptr - mapped_data,
     };
 
-    REF_RESOURCE(ctx_pic->pp.wDecodedPictureIndex    )
-    REF_RESOURCE(ctx_pic->pp.wForwardRefPictureIndex )
-    REF_RESOURCE(ctx_pic->pp.wBackwardRefPictureIndex)
-
     return 0;
 }
 
@@ -175,6 +173,8 @@ static int d3d12va_vc1_decode_init(AVCodecContext *avctx)
 {
     D3D12VADecodeContext *ctx = D3D12VA_DECODE_CONTEXT(avctx);
     ctx->cfg.DecodeProfile = D3D12_VIDEO_DECODE_PROFILE_VC1;
+
+    ctx->max_num_ref = 3;
 
     return ff_d3d12va_decode_init(avctx);
 }

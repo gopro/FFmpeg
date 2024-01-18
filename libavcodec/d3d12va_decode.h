@@ -54,11 +54,11 @@ typedef struct D3D12VADecodeContext {
     D3D12_VIDEO_DECODE_CONFIGURATION cfg;
 
     /**
-     * A cached queue for reusing the D3D12 command allocators
+     * A cached queue for reusing the D3D12 command allocators and upload buffers
      *
      * @see https://learn.microsoft.com/en-us/windows/win32/direct3d12/recording-command-lists-and-bundles#id3d12commandallocator
      */
-    AVFifo *allocator_queue;
+    AVFifo *objects_queue;
 
     /**
      * D3D12 command queue
@@ -69,13 +69,6 @@ typedef struct D3D12VADecodeContext {
      * D3D12 video decode command list
      */
     ID3D12VideoDecodeCommandList *command_list;
-
-    /**
-     * The array of buffer resources used to upload compressed bitstream
-     *
-     * The buffers.length is the same as D3D12VADecodeContext.max_num_ref
-     */
-    ID3D12Resource **buffers;
 
     /**
      * The array of resources used for reference frames
@@ -97,9 +90,19 @@ typedef struct D3D12VADecodeContext {
     UINT max_num_ref;
 
     /**
+     * Used mask used to record reference frames indices
+     */
+    UINT used_mask;
+
+    /**
+     * Bitstream size for each frame
+     */
+    UINT bitstream_size;
+
+    /**
      * The sync context used to sync command queue
      */
-    AVD3D12VASyncContext *sync_ctx;
+    AVD3D12VASyncContext sync_ctx;
 
     /**
      * A pointer to AVD3D12VADeviceContext used to create D3D12 objects
@@ -120,7 +123,7 @@ typedef struct D3D12VADecodeContext {
 /**
  * @}
  */
-
+#define D3D12VA_VIDEO_DEC_ASYNC_DEPTH 36
 #define D3D12VA_DECODE_CONTEXT(avctx) ((D3D12VADecodeContext *)((avctx)->internal->hwaccel_priv_data))
 #define D3D12VA_FRAMES_CONTEXT(avctx) ((AVHWFramesContext *)(avctx)->hw_frames_ctx->data)
 

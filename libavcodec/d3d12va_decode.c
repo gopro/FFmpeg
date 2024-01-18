@@ -34,10 +34,11 @@
 #include "decode.h"
 #include "d3d12va_decode.h"
 
-typedef struct CommandAllocator {
+typedef struct HelperObjects {
     ID3D12CommandAllocator *command_allocator;
+    ID3D12Resource *buffer;
     uint64_t fence_value;
-} CommandAllocator;
+} HelperObjects;
 
 int ff_d3d12va_get_suitable_max_bitstream_size(AVCodecContext *avctx)
 {
@@ -45,56 +46,121 @@ int ff_d3d12va_get_suitable_max_bitstream_size(AVCodecContext *avctx)
     return av_image_get_buffer_size(frames_ctx->sw_format, avctx->coded_width, avctx->coded_height, 1);
 }
 
-static int d3d12va_get_valid_command_allocator(AVCodecContext *avctx, ID3D12CommandAllocator **ppAllocator)
+unsigned ff_d3d12va_get_surface_index(const AVCodecContext *avctx,
+                                      D3D12VADecodeContext *ctx, const AVFrame *frame,
+                                      int curr)
+{
+    AVD3D12VAFrame *f;
+    ID3D12Resource *res;
+    unsigned i;
+
+    f = (AVD3D12VAFrame *)frame->data[0];
+    if (!f)
+        goto fail;
+
+    res = f->texture;
+    if (!res)
+        goto fail;
+
+    if (!curr) {
+        for (i = 0; i < ctx->max_num_ref; i++) {
+            if (ctx->ref_resources[i] && res == ctx->ref_resources[i]) {
+                ctx->used_mask |= 1 << i;
+                return i;
+            }
+        }
+    } else {
+        for (i = 0; i < ctx->max_num_ref; i++) {
+            if (!((ctx->used_mask >> i) & 0x1)) {
+                ctx->ref_resources[i] = res;
+                return i;
+            }
+        }
+    }
+
+fail:
+    av_log(avctx, AV_LOG_WARNING, "Could not get surface index. Using 0 instead.\n");
+    return 0;
+}
+
+static int d3d12va_get_valid_helper_objects(AVCodecContext *avctx, ID3D12CommandAllocator **ppAllocator,
+                                            ID3D12Resource **ppBuffer)
 {
     HRESULT hr;
     D3D12VADecodeContext *ctx = D3D12VA_DECODE_CONTEXT(avctx);
-    CommandAllocator allocator;
+    HelperObjects obj = { 0 };
+    D3D12_HEAP_PROPERTIES heap_props = { .Type = D3D12_HEAP_TYPE_UPLOAD };
 
-    if (av_fifo_peek(ctx->allocator_queue, &allocator, 1, 0) >= 0) {
-        uint64_t completion = ID3D12Fence_GetCompletedValue(ctx->sync_ctx->fence);
-        if (completion >= allocator.fence_value) {
-            *ppAllocator = allocator.command_allocator;
-            av_fifo_read(ctx->allocator_queue, &allocator, 1);
+    D3D12_RESOURCE_DESC desc = {
+        .Dimension        = D3D12_RESOURCE_DIMENSION_BUFFER,
+        .Alignment        = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
+        .Width            = ctx->bitstream_size,
+        .Height           = 1,
+        .DepthOrArraySize = 1,
+        .MipLevels        = 1,
+        .Format           = DXGI_FORMAT_UNKNOWN,
+        .SampleDesc       = { .Count = 1, .Quality = 0 },
+        .Layout           = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+        .Flags            = D3D12_RESOURCE_FLAG_NONE,
+    };
+
+    if (av_fifo_peek(ctx->objects_queue, &obj, 1, 0) >= 0) {
+        uint64_t completion = ID3D12Fence_GetCompletedValue(ctx->sync_ctx.fence);
+        if (completion >= obj.fence_value) {
+            *ppAllocator = obj.command_allocator;
+            *ppBuffer    = obj.buffer;
+            av_fifo_read(ctx->objects_queue, &obj, 1);
             return 0;
         }
     }
 
     hr = ID3D12Device_CreateCommandAllocator(ctx->device_ctx->device, D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE,
-        &IID_ID3D12CommandAllocator, ppAllocator);
+                                             &IID_ID3D12CommandAllocator, (void **)ppAllocator);
     if (FAILED(hr)) {
         av_log(avctx, AV_LOG_ERROR, "Failed to create a new command allocator!\n");
+        return AVERROR(EINVAL);
+    }
+
+    hr = ID3D12Device_CreateCommittedResource(ctx->device_ctx->device, &heap_props, D3D12_HEAP_FLAG_NONE,
+                                              &desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
+                                              &IID_ID3D12Resource, (void **)ppBuffer);
+
+    if (FAILED(hr)) {
+        av_log(avctx, AV_LOG_ERROR, "Failed to create a new d3d12 buffer!\n");
         return AVERROR(EINVAL);
     }
 
     return 0;
 }
 
-static int d3d12va_discard_command_allocator(AVCodecContext *avctx, ID3D12CommandAllocator *pAllocator, uint64_t fence_value)
+static int d3d12va_discard_helper_objects(AVCodecContext *avctx, ID3D12CommandAllocator *pAllocator,
+                                          ID3D12Resource *pBuffer, uint64_t fence_value)
 {
     D3D12VADecodeContext *ctx = D3D12VA_DECODE_CONTEXT(avctx);
 
-    CommandAllocator allocator = {
+    HelperObjects obj = {
         .command_allocator = pAllocator,
-        .fence_value = fence_value
+        .buffer            = pBuffer,
+        .fence_value       = fence_value,
     };
 
-    if (av_fifo_write(ctx->allocator_queue, &allocator, 1) < 0) {
+    if (av_fifo_write(ctx->objects_queue, &obj, 1) < 0) {
         D3D12_OBJECT_RELEASE(pAllocator);
+        D3D12_OBJECT_RELEASE(pBuffer);
         return AVERROR(ENOMEM);
     }
 
     return 0;
 }
 
-static int d3d12va_wait_idle(AVD3D12VASyncContext *sync_ctx)
+static int d3d12va_fence_completion(AVD3D12VASyncContext *psync_ctx)
 {
-    uint64_t completion = ID3D12Fence_GetCompletedValue(sync_ctx->fence);
-    if (completion < sync_ctx->fence_value) {
-        if (FAILED(ID3D12Fence_SetEventOnCompletion(sync_ctx->fence, sync_ctx->fence_value, sync_ctx->event)))
+    uint64_t completion = ID3D12Fence_GetCompletedValue(psync_ctx->fence);
+    if (completion < psync_ctx->fence_value) {
+        if (FAILED(ID3D12Fence_SetEventOnCompletion(psync_ctx->fence, psync_ctx->fence_value, psync_ctx->event)))
             return AVERROR(EINVAL);
 
-        WaitForSingleObjectEx(sync_ctx->event, INFINITE, FALSE);
+        WaitForSingleObjectEx(psync_ctx->event, INFINITE, FALSE);
     }
 
     return 0;
@@ -110,43 +176,12 @@ static AVBufferRef *bufref_wrap_interface(IUnknown *iface)
     return av_buffer_create((uint8_t*)iface, 1, bufref_free_interface, iface, 0);
 }
 
-static int d3d12va_create_buffer(AVCodecContext *avctx, UINT size, ID3D12Resource **ppResouce)
+static int d3d12va_sync_with_gpu(AVCodecContext *avctx)
 {
     D3D12VADecodeContext *ctx = D3D12VA_DECODE_CONTEXT(avctx);
 
-    D3D12_HEAP_PROPERTIES heap_props = { .Type = D3D12_HEAP_TYPE_UPLOAD };
-
-    D3D12_RESOURCE_DESC desc = {
-        .Dimension        = D3D12_RESOURCE_DIMENSION_BUFFER,
-        .Alignment        = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
-        .Width            = size,
-        .Height           = 1,
-        .DepthOrArraySize = 1,
-        .MipLevels        = 1,
-        .Format           = DXGI_FORMAT_UNKNOWN,
-        .SampleDesc       = { .Count = 1, .Quality = 0 },
-        .Layout           = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
-        .Flags            = D3D12_RESOURCE_FLAG_NONE,
-    };
-
-    HRESULT hr = ID3D12Device_CreateCommittedResource(ctx->device_ctx->device, &heap_props, D3D12_HEAP_FLAG_NONE,
-        &desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL, &IID_ID3D12Resource, ppResouce);
-
-    if (FAILED(hr)) {
-        av_log(avctx, AV_LOG_ERROR, "Failed to create d3d12 buffer.\n");
-        return  AVERROR(EINVAL);
-    }
-
-    return 0;
-}
-
-static int d3d12va_wait_for_gpu(AVCodecContext *avctx)
-{
-    D3D12VADecodeContext *ctx      = D3D12VA_DECODE_CONTEXT(avctx);
-    AVD3D12VASyncContext *sync_ctx = ctx->sync_ctx;
-
-    DX_CHECK(ID3D12CommandQueue_Signal(ctx->command_queue, sync_ctx->fence, ++sync_ctx->fence_value));
-    return d3d12va_wait_idle(sync_ctx);
+    DX_CHECK(ID3D12CommandQueue_Signal(ctx->command_queue, ctx->sync_ctx.fence, ++ctx->sync_ctx.fence_value));
+    return d3d12va_fence_completion(&ctx->sync_ctx);
 
 fail:
     return AVERROR(EINVAL);
@@ -156,21 +191,22 @@ static int d3d12va_create_decoder_heap(AVCodecContext *avctx)
 {
     D3D12VADecodeContext   *ctx        = D3D12VA_DECODE_CONTEXT(avctx);
     AVHWFramesContext      *frames_ctx = D3D12VA_FRAMES_CONTEXT(avctx);
-    AVD3D12VADeviceContext *hwctx      = ctx->device_ctx;
+    AVD3D12VADeviceContext *device_hwctx = ctx->device_ctx;
+    AVD3D12VAFramesContext *frames_hwctx = frames_ctx->hwctx;
 
     D3D12_VIDEO_DECODER_HEAP_DESC desc = {
         .NodeMask      = 0,
         .Configuration = ctx->cfg,
         .DecodeWidth   = frames_ctx->width,
         .DecodeHeight  = frames_ctx->height,
-        .Format        = av_d3d12va_map_sw_to_hw_format(frames_ctx->sw_format),
+        .Format        = frames_hwctx->format,
         .FrameRate     = { avctx->framerate.num, avctx->framerate.den },
         .BitRate       = avctx->bit_rate,
-        .MaxDecodePictureBufferCount = frames_ctx->initial_pool_size,
+        .MaxDecodePictureBufferCount = ctx->max_num_ref,
     };
 
-    DX_CHECK(ID3D12VideoDevice_CreateVideoDecoderHeap(hwctx->video_device, &desc,
-        &IID_ID3D12VideoDecoderHeap, &ctx->decoder_heap));
+    DX_CHECK(ID3D12VideoDevice_CreateVideoDecoderHeap(device_hwctx->video_device, &desc,
+             &IID_ID3D12VideoDecoderHeap, (void **)&ctx->decoder_heap));
 
     return 0;
 
@@ -188,19 +224,21 @@ static int d3d12va_create_decoder(AVCodecContext *avctx)
     D3D12_VIDEO_DECODER_DESC desc;
     D3D12VADecodeContext   *ctx        = D3D12VA_DECODE_CONTEXT(avctx);
     AVHWFramesContext      *frames_ctx = D3D12VA_FRAMES_CONTEXT(avctx);
-    AVD3D12VADeviceContext *hwctx      = ctx->device_ctx;
+    AVD3D12VADeviceContext *device_hwctx = ctx->device_ctx;
+    AVD3D12VAFramesContext *frames_hwctx = frames_ctx->hwctx;
 
     D3D12_FEATURE_DATA_VIDEO_DECODE_SUPPORT feature = {
         .NodeIndex     = 0,
         .Configuration = ctx->cfg,
         .Width         = frames_ctx->width,
         .Height        = frames_ctx->height,
-        .DecodeFormat  = av_d3d12va_map_sw_to_hw_format(frames_ctx->sw_format),
+        .DecodeFormat  = frames_hwctx->format,
         .FrameRate     = { avctx->framerate.num, avctx->framerate.den },
         .BitRate       = avctx->bit_rate,
     };
 
-    DX_CHECK(ID3D12VideoDevice_CheckFeatureSupport(hwctx->video_device, D3D12_FEATURE_VIDEO_DECODE_SUPPORT, &feature, sizeof(feature)));
+    DX_CHECK(ID3D12VideoDevice_CheckFeatureSupport(device_hwctx->video_device, D3D12_FEATURE_VIDEO_DECODE_SUPPORT,
+                                                   &feature, sizeof(feature)));
     if (!(feature.SupportFlags & D3D12_VIDEO_DECODE_SUPPORT_FLAG_SUPPORTED) ||
         !(feature.DecodeTier >= D3D12_VIDEO_DECODE_TIER_2)) {
         av_log(avctx, AV_LOG_ERROR, "D3D12 decoder doesn't support on this device\n");
@@ -212,7 +250,8 @@ static int d3d12va_create_decoder(AVCodecContext *avctx)
         .Configuration = ctx->cfg,
     };
 
-    DX_CHECK(ID3D12VideoDevice_CreateVideoDecoder(hwctx->video_device, &desc, &IID_ID3D12VideoDecoder, &ctx->decoder));
+    DX_CHECK(ID3D12VideoDevice_CreateVideoDecoder(device_hwctx->video_device, &desc, &IID_ID3D12VideoDecoder,
+                                                  (void **)&ctx->decoder));
 
     ctx->decoder_ref = bufref_wrap_interface((IUnknown *)ctx->decoder);
     if (!ctx->decoder_ref)
@@ -224,42 +263,15 @@ fail:
     return AVERROR(EINVAL);
 }
 
-static inline int d3d12va_get_num_surfaces(enum AVCodecID codec_id)
-{
-    int num_surfaces = 1;
-    switch (codec_id) {
-    case AV_CODEC_ID_H264:
-    case AV_CODEC_ID_HEVC:
-        num_surfaces += 16;
-        break;
-
-    case AV_CODEC_ID_AV1:
-        num_surfaces += 12;
-        break;
-
-    case AV_CODEC_ID_VP9:
-        num_surfaces += 8;
-        break;
-
-    default:
-        num_surfaces += 2;
-    }
-
-    return num_surfaces;
-}
-
 int ff_d3d12va_common_frame_params(AVCodecContext *avctx, AVBufferRef *hw_frames_ctx)
 {
     AVHWFramesContext      *frames_ctx   = (AVHWFramesContext *)hw_frames_ctx->data;
     AVHWDeviceContext      *device_ctx   = frames_ctx->device_ctx;
-    AVD3D12VAFramesContext *frames_hwctx = frames_ctx->hwctx;
 
     frames_ctx->format    = AV_PIX_FMT_D3D12;
     frames_ctx->sw_format = avctx->sw_pix_fmt == AV_PIX_FMT_YUV420P10 ? AV_PIX_FMT_P010 : AV_PIX_FMT_NV12;
     frames_ctx->width     = avctx->width;
     frames_ctx->height    = avctx->height;
-
-    frames_ctx->initial_pool_size = d3d12va_get_num_surfaces(avctx->codec_id);
 
     return 0;
 }
@@ -267,16 +279,15 @@ int ff_d3d12va_common_frame_params(AVCodecContext *avctx, AVBufferRef *hw_frames
 int ff_d3d12va_decode_init(AVCodecContext *avctx)
 {
     int ret;
-    UINT bitstream_size;
     AVHWFramesContext *frames_ctx;
     D3D12VADecodeContext *ctx = D3D12VA_DECODE_CONTEXT(avctx);
-
+    ID3D12Resource *buffer = NULL;
     ID3D12CommandAllocator *command_allocator = NULL;
     D3D12_COMMAND_QUEUE_DESC queue_desc = {
         .Type     = D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE,
         .Priority = 0,
         .Flags    = D3D12_COMMAND_QUEUE_FLAG_NONE,
-        .NodeMask = 0
+        .NodeMask = 0,
     };
 
     ctx->pix_fmt = avctx->hwaccel->pix_fmt;
@@ -301,54 +312,55 @@ int ff_d3d12va_decode_init(AVCodecContext *avctx)
     if (ret < 0)
         goto fail;
 
-    ctx->max_num_ref = frames_ctx->initial_pool_size;
+    ctx->bitstream_size = ff_d3d12va_get_suitable_max_bitstream_size(avctx);
 
-    bitstream_size = ff_d3d12va_get_suitable_max_bitstream_size(avctx);
-    ctx->buffers = av_calloc(sizeof(ID3D12Resource *), ctx->max_num_ref);
-    for (int i = 0; i < ctx->max_num_ref; i++) {
-        ret = d3d12va_create_buffer(avctx, bitstream_size, &ctx->buffers[i]);
-        if (ret < 0)
-            goto fail;
-    }
-
-    ctx->ref_resources = av_calloc(sizeof(ID3D12Resource *), ctx->max_num_ref);
+    ctx->ref_resources = av_calloc(ctx->max_num_ref, sizeof(*ctx->ref_resources));
     if (!ctx->ref_resources)
         return AVERROR(ENOMEM);
 
-    ctx->ref_subresources = av_calloc(sizeof(UINT), ctx->max_num_ref);
+    ctx->ref_subresources = av_calloc(ctx->max_num_ref, sizeof(*ctx->ref_subresources));
     if (!ctx->ref_subresources)
         return AVERROR(ENOMEM);
 
-    ctx->allocator_queue = av_fifo_alloc2(ctx->max_num_ref, sizeof(CommandAllocator), AV_FIFO_FLAG_AUTO_GROW);
-    if (!ctx->allocator_queue)
+    ctx->objects_queue = av_fifo_alloc2(D3D12VA_VIDEO_DEC_ASYNC_DEPTH,
+                                        sizeof(HelperObjects), AV_FIFO_FLAG_AUTO_GROW);
+    if (!ctx->objects_queue)
         return AVERROR(ENOMEM);
 
-    ret = av_d3d12va_sync_context_alloc(ctx->device_ctx, &ctx->sync_ctx);
-    if (ret < 0)
+    DX_CHECK(ID3D12Device_CreateFence(ctx->device_ctx->device, 0, D3D12_FENCE_FLAG_NONE,
+                                      &IID_ID3D12Fence, (void **)&ctx->sync_ctx.fence));
+
+    ctx->sync_ctx.event = CreateEvent(NULL, FALSE, FALSE, NULL);
+    if (!ctx->sync_ctx.event)
         goto fail;
 
-    ret = d3d12va_get_valid_command_allocator(avctx, &command_allocator);
+    ret = d3d12va_get_valid_helper_objects(avctx, &command_allocator, &buffer);
     if (ret < 0)
         goto fail;
 
     DX_CHECK(ID3D12Device_CreateCommandQueue(ctx->device_ctx->device, &queue_desc,
-        &IID_ID3D12CommandQueue, &ctx->command_queue));
+             &IID_ID3D12CommandQueue, (void **)&ctx->command_queue));
 
     DX_CHECK(ID3D12Device_CreateCommandList(ctx->device_ctx->device, 0, queue_desc.Type,
-        command_allocator, NULL, &IID_ID3D12CommandList, &ctx->command_list));
+             command_allocator, NULL, &IID_ID3D12CommandList, (void **)&ctx->command_list));
 
     DX_CHECK(ID3D12VideoDecodeCommandList_Close(ctx->command_list));
 
     ID3D12CommandQueue_ExecuteCommandLists(ctx->command_queue, 1, (ID3D12CommandList **)&ctx->command_list);
 
-    d3d12va_wait_for_gpu(avctx);
+    ret = d3d12va_sync_with_gpu(avctx);
+    if (ret < 0)
+        goto fail;
 
-    d3d12va_discard_command_allocator(avctx, command_allocator, ctx->sync_ctx->fence_value);
+    d3d12va_discard_helper_objects(avctx, command_allocator, buffer, ctx->sync_ctx.fence_value);
+    if (ret < 0)
+        goto fail;
 
     return 0;
 
 fail:
     D3D12_OBJECT_RELEASE(command_allocator);
+    D3D12_OBJECT_RELEASE(buffer);
     ff_d3d12va_decode_uninit(avctx);
 
     return AVERROR(EINVAL);
@@ -356,38 +368,34 @@ fail:
 
 int ff_d3d12va_decode_uninit(AVCodecContext *avctx)
 {
-    int i, num_allocator = 0;
+    int num_allocator = 0;
     D3D12VADecodeContext *ctx = D3D12VA_DECODE_CONTEXT(avctx);
-    CommandAllocator allocator;
+    HelperObjects obj;
 
-    if (ctx->sync_ctx)
-        d3d12va_wait_for_gpu(avctx);
+    if (ctx->sync_ctx.fence)
+        d3d12va_sync_with_gpu(avctx);
 
     av_freep(&ctx->ref_resources);
-
     av_freep(&ctx->ref_subresources);
 
-    for (i = 0; i < ctx->max_num_ref; i++)
-        D3D12_OBJECT_RELEASE(ctx->buffers[i]);
-
-    av_freep(&ctx->buffers);
-
     D3D12_OBJECT_RELEASE(ctx->command_list);
-
     D3D12_OBJECT_RELEASE(ctx->command_queue);
 
-    if (ctx->allocator_queue) {
-        while (av_fifo_read(ctx->allocator_queue, &allocator, 1) >= 0) {
+    if (ctx->objects_queue) {
+        while (av_fifo_read(ctx->objects_queue, &obj, 1) >= 0) {
             num_allocator++;
-            D3D12_OBJECT_RELEASE(allocator.command_allocator);
+            D3D12_OBJECT_RELEASE(obj.buffer);
+            D3D12_OBJECT_RELEASE(obj.command_allocator);
         }
 
         av_log(avctx, AV_LOG_VERBOSE, "Total number of command allocators reused: %d\n", num_allocator);
     }
 
-    av_fifo_freep2(&ctx->allocator_queue);
+    av_fifo_freep2(&ctx->objects_queue);
 
-    av_d3d12va_sync_context_free(&ctx->sync_ctx);
+    D3D12_OBJECT_RELEASE(ctx->sync_ctx.fence);
+    if (ctx->sync_ctx.event)
+        CloseHandle(ctx->sync_ctx.event);
 
     D3D12_OBJECT_RELEASE(ctx->decoder_heap);
 
@@ -396,7 +404,8 @@ int ff_d3d12va_decode_uninit(AVCodecContext *avctx)
     return 0;
 }
 
-static inline int d3d12va_update_reference_frames_state(AVCodecContext *avctx, D3D12_RESOURCE_BARRIER *barriers, int index, int state_before, int state_end)
+static inline int d3d12va_update_reference_frames_state(AVCodecContext *avctx, D3D12_RESOURCE_BARRIER *barriers,
+                                                        ID3D12Resource *current_resource, int state_before, int state_end)
 {
     D3D12VADecodeContext   *ctx          = D3D12VA_DECODE_CONTEXT(avctx);
     AVHWFramesContext      *frames_ctx   = D3D12VA_FRAMES_CONTEXT(avctx);
@@ -404,12 +413,12 @@ static inline int d3d12va_update_reference_frames_state(AVCodecContext *avctx, D
 
     int num_barrier = 0;
     for (int i = 0; i < ctx->max_num_ref; i++) {
-        if (ctx->ref_resources[i] && ctx->ref_resources[i] != frames_hwctx->texture_infos[index].texture) {
+        if (((ctx->used_mask >> i) & 0x1) && ctx->ref_resources[i] && ctx->ref_resources[i] != current_resource) {
             barriers[num_barrier].Type  = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
             barriers[num_barrier].Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
             barriers[num_barrier].Transition = (D3D12_RESOURCE_TRANSITION_BARRIER){
                 .pResource   = ctx->ref_resources[i],
-                .Subresource = 0,
+                .Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
                 .StateBefore = state_before,
                 .StateAfter  = state_end,
             };
@@ -429,11 +438,10 @@ int ff_d3d12va_common_end_frame(AVCodecContext *avctx, AVFrame *frame,
     D3D12VADecodeContext   *ctx               = D3D12VA_DECODE_CONTEXT(avctx);
     AVHWFramesContext      *frames_ctx        = D3D12VA_FRAMES_CONTEXT(avctx);
     AVD3D12VAFramesContext *frames_hwctx      = frames_ctx->hwctx;
+    ID3D12Resource         *buffer            = NULL;
     ID3D12CommandAllocator *command_allocator = NULL;
     AVD3D12VAFrame         *f                 = (AVD3D12VAFrame *)frame->data[0];
     ID3D12Resource         *resource          = (ID3D12Resource *)f->texture;
-    AVD3D12VASyncContext   *sync_ctx          = (AVD3D12VASyncContext *)f->sync_ctx;
-    intptr_t                index             = (intptr_t)f->index;
 
     ID3D12VideoDecodeCommandList *cmd_list = ctx->command_list;
     D3D12_RESOURCE_BARRIER barriers[32] = { 0 };
@@ -456,7 +464,7 @@ int ff_d3d12va_common_end_frame(AVCodecContext *avctx, AVFrame *frame,
     };
 
     D3D12_VIDEO_DECODE_OUTPUT_STREAM_ARGUMENTS output_args = {
-        .ConversionArguments = 0,
+        .ConversionArguments = { 0 },
         .OutputSubresource   = 0,
         .pOutputTexture2D    = resource,
     };
@@ -467,28 +475,29 @@ int ff_d3d12va_common_end_frame(AVCodecContext *avctx, AVFrame *frame,
         .Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE,
         .Transition = {
             .pResource   = resource,
-            .Subresource = 0,
+            .Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
             .StateBefore = D3D12_RESOURCE_STATE_COMMON,
             .StateAfter  = D3D12_RESOURCE_STATE_VIDEO_DECODE_WRITE,
         },
     };
 
-    memset(ctx->ref_resources, 0, sizeof(ID3D12Resource *) * ctx->max_num_ref);
     memset(ctx->ref_subresources, 0, sizeof(UINT) * ctx->max_num_ref);
     input_args.ReferenceFrames.NumTexture2Ds = ctx->max_num_ref;
     input_args.ReferenceFrames.ppTexture2Ds  = ctx->ref_resources;
     input_args.ReferenceFrames.pSubresources = ctx->ref_subresources;
 
-    d3d12va_wait_idle(sync_ctx);
+    ret = d3d12va_fence_completion(&f->sync_ctx);
+    if (ret < 0)
+        goto fail;
 
     if (!qm)
         input_args.NumFrameArguments = 1;
 
-    ret = update_input_arguments(avctx, &input_args, ctx->buffers[index]);
+    ret = d3d12va_get_valid_helper_objects(avctx, &command_allocator, &buffer);
     if (ret < 0)
-        return ret;
+        goto fail;
 
-    ret = d3d12va_get_valid_command_allocator(avctx, &command_allocator);
+    ret = update_input_arguments(avctx, &input_args, buffer);
     if (ret < 0)
         goto fail;
 
@@ -496,15 +505,14 @@ int ff_d3d12va_common_end_frame(AVCodecContext *avctx, AVFrame *frame,
 
     DX_CHECK(ID3D12VideoDecodeCommandList_Reset(cmd_list, command_allocator));
 
-    num_barrier += d3d12va_update_reference_frames_state(avctx, &barriers[1], index, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_VIDEO_DECODE_READ);
+    num_barrier += d3d12va_update_reference_frames_state(avctx, &barriers[1], resource, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_VIDEO_DECODE_READ);
 
     ID3D12VideoDecodeCommandList_ResourceBarrier(cmd_list, num_barrier, barriers);
 
     ID3D12VideoDecodeCommandList_DecodeFrame(cmd_list, ctx->decoder, &output_args, &input_args);
 
-    barriers[0].Transition.StateBefore = barriers[0].Transition.StateAfter;
-    barriers[0].Transition.StateAfter  = D3D12_RESOURCE_STATE_COMMON;
-    d3d12va_update_reference_frames_state(avctx, &barriers[1], index, D3D12_RESOURCE_STATE_VIDEO_DECODE_READ, D3D12_RESOURCE_STATE_COMMON);
+    for (int i = 0; i < num_barrier; i++)
+        FFSWAP(D3D12_RESOURCE_STATES, barriers[i].Transition.StateBefore, barriers[i].Transition.StateAfter);
 
     ID3D12VideoDecodeCommandList_ResourceBarrier(cmd_list, num_barrier, barriers);
 
@@ -512,24 +520,18 @@ int ff_d3d12va_common_end_frame(AVCodecContext *avctx, AVFrame *frame,
 
     ID3D12CommandQueue_ExecuteCommandLists(ctx->command_queue, 1, (ID3D12CommandList **)&ctx->command_list);
 
-    DX_CHECK(ID3D12CommandQueue_Signal(ctx->command_queue, sync_ctx->fence, ++sync_ctx->fence_value));
+    DX_CHECK(ID3D12CommandQueue_Signal(ctx->command_queue, f->sync_ctx.fence, ++f->sync_ctx.fence_value));
 
-    DX_CHECK(ID3D12CommandQueue_Signal(ctx->command_queue, ctx->sync_ctx->fence, ++ctx->sync_ctx->fence_value));
+    DX_CHECK(ID3D12CommandQueue_Signal(ctx->command_queue, ctx->sync_ctx.fence, ++ctx->sync_ctx.fence_value));
 
-    ret = d3d12va_discard_command_allocator(avctx, command_allocator, ctx->sync_ctx->fence_value);
-    if (ret < 0)
-        return ret;
-
-    if (ctx->sync_ctx) {
-        ret = d3d12va_wait_idle(ctx->sync_ctx);
+    ret = d3d12va_discard_helper_objects(avctx, command_allocator, buffer, ctx->sync_ctx.fence_value);
         if (ret < 0)
             return ret;
-    }
 
     return 0;
 
 fail:
     if (command_allocator)
-        d3d12va_discard_command_allocator(avctx, command_allocator, ctx->sync_ctx->fence_value);
+        d3d12va_discard_helper_objects(avctx, command_allocator, buffer, ctx->sync_ctx.fence_value);
     return AVERROR(EINVAL);
 }

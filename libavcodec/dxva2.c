@@ -20,10 +20,10 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include <assert.h>
 #include <string.h>
 #include <initguid.h>
 
+#include "libavutil/avassert.h"
 #include "libavutil/common.h"
 #include "libavutil/log.h"
 #include "libavutil/time.h"
@@ -768,17 +768,15 @@ static void *get_surface(const AVCodecContext *avctx, const AVFrame *frame)
 }
 
 unsigned ff_dxva2_get_surface_index(const AVCodecContext *avctx,
-                                    const AVDXVAContext *ctx,
-                                    const AVFrame *frame)
+                                    AVDXVAContext *ctx, const AVFrame *frame,
+                                    int curr)
 {
     void *surface = get_surface(avctx, frame);
     unsigned i;
 
 #if CONFIG_D3D12VA
     if (avctx->pix_fmt == AV_PIX_FMT_D3D12) {
-        AVD3D12VAFrame *f = (AVD3D12VAFrame *)frame->data[0];
-        if (!f) return 0;
-        return (intptr_t)f->index;
+        return ff_d3d12va_get_surface_index(avctx, (D3D12VADecodeContext *)ctx, frame, curr);
     }
 #endif
 #if CONFIG_D3D11VA
@@ -797,7 +795,7 @@ unsigned ff_dxva2_get_surface_index(const AVCodecContext *avctx,
     }
 #endif
 
-    assert(0);
+    av_log(avctx, AV_LOG_WARNING, "Could not get surface index. Using 0 instead.\n");
     return 0;
 }
 
@@ -1014,7 +1012,7 @@ int ff_dxva2_common_end_frame(AVCodecContext *avctx, AVFrame *frame,
 
     /* TODO Film Grain when possible */
 
-    assert(buffer_count == 1 + (qm_size > 0) + 2);
+    av_assert0(buffer_count == 1 + (qm_size > 0) + 2);
 
 #if CONFIG_D3D11VA
     if (ff_dxva2_is_d3d11(avctx))

@@ -60,6 +60,8 @@ static int d3d12va_hevc_start_frame(AVCodecContext *avctx, av_unused const uint8
 
     av_assert0(ctx_pic);
 
+    ctx->used_mask = 0;
+
     ff_dxva2_hevc_fill_picture_parameters(avctx, (AVDXVAContext *)ctx, &ctx_pic->pp);
 
     ff_dxva2_hevc_fill_scaling_lists(avctx, (AVDXVAContext *)ctx, &ctx_pic->qm);
@@ -104,7 +106,7 @@ static int update_input_arguments(AVCodecContext *avctx, D3D12_VIDEO_DECODE_INPU
     const HEVCFrame          *current_picture = h->ref;
     HEVCDecodePictureContext *ctx_pic         = current_picture->hwaccel_picture_private;
 
-    int i, index;
+    int i;
     uint8_t *mapped_data, *mapped_ptr;
     DXVA_Slice_HEVC_Short *slice;
     D3D12_VIDEO_DECODE_FRAME_ARGUMENT *args;
@@ -145,14 +147,6 @@ static int update_input_arguments(AVCodecContext *avctx, D3D12_VIDEO_DECODE_INPU
     args->Size = sizeof(DXVA_Slice_HEVC_Short) * ctx_pic->slice_count;
     args->pData = ctx_pic->slice_short;
 
-    index = ctx_pic->pp.CurrPic.Index7Bits;
-    ctx->ref_resources[index] = frames_hwctx->texture_infos[index].texture;
-    for (i = 0; i < FF_ARRAY_ELEMS(ctx_pic->pp.RefPicList); i++) {
-        index = ctx_pic->pp.RefPicList[i].Index7Bits;
-        if (index != 0x7f)
-            ctx->ref_resources[index] = frames_hwctx->texture_infos[index].texture;
-    }
-
     return 0;
 }
 
@@ -174,6 +168,7 @@ static int d3d12va_hevc_decode_init(AVCodecContext *avctx)
 {
     HEVCContext          *h   = avctx->priv_data;
     D3D12VADecodeContext *ctx = D3D12VA_DECODE_CONTEXT(avctx);
+    DXVA_PicParams_HEVC pp;
 
     switch (avctx->profile) {
     case FF_PROFILE_HEVC_MAIN_10:
@@ -194,6 +189,8 @@ static int d3d12va_hevc_decode_init(AVCodecContext *avctx)
         ctx->cfg.DecodeProfile = D3D12_VIDEO_DECODE_PROFILE_HEVC_MAIN;
         break;
     };
+
+    ctx->max_num_ref = FF_ARRAY_ELEMS(pp.RefPicList) + 1;
 
     return ff_d3d12va_decode_init(avctx);
 }
