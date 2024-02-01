@@ -145,6 +145,12 @@ static int tcp_open(URLContext *h, const char *uri, int flags)
     }
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
+#if TARGET_OS_IPHONE
+    /* Get both IPv4 and IPv6 addresses. This is to work around an appear
+       to be iOS bug that getaddr() does not return IPv6 and IPv4 addresses
+       using default ai_flag */
+    hints.ai_flags = AI_V4MAPPED | AI_ALL;
+#endif
     snprintf(portstr, sizeof(portstr), "%d", port);
     if (s->listen)
         hints.ai_flags |= AI_PASSIVE;
