@@ -28,7 +28,6 @@
 #include "libavutil/hwcontext_d3d12va.h"
 #include "avcodec.h"
 #include "internal.h"
-#include "hwaccel_internal.h"
 
 /**
  * @brief This structure is used to provide the necessary configurations and data

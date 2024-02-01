@@ -166,11 +166,11 @@ static int d3d12va_hevc_decode_init(AVCodecContext *avctx)
     DXVA_PicParams_HEVC pp;
 
     switch (avctx->profile) {
-    case AV_PROFILE_HEVC_MAIN_10:
+    case FF_PROFILE_HEVC_MAIN_10:
         ctx->cfg.DecodeProfile = D3D12_VIDEO_DECODE_PROFILE_HEVC_MAIN10;
         break;
 
-    case AV_PROFILE_HEVC_MAIN_STILL_PICTURE:
+    case FF_PROFILE_HEVC_MAIN_STILL_PICTURE:
         if (avctx->hwaccel_flags & AV_HWACCEL_FLAG_ALLOW_PROFILE_MISMATCH) {
             ctx->cfg.DecodeProfile = D3D12_VIDEO_DECODE_PROFILE_HEVC_MAIN;
             break;
@@ -179,7 +179,7 @@ static int d3d12va_hevc_decode_init(AVCodecContext *avctx)
             return AVERROR(EINVAL);
         }
 
-    case AV_PROFILE_HEVC_MAIN:
+    case FF_PROFILE_HEVC_MAIN:
     default:
         ctx->cfg.DecodeProfile = D3D12_VIDEO_DECODE_PROFILE_HEVC_MAIN;
         break;
@@ -191,11 +191,11 @@ static int d3d12va_hevc_decode_init(AVCodecContext *avctx)
 }
 
 #if CONFIG_HEVC_D3D12VA_HWACCEL
-const FFHWAccel ff_hevc_d3d12va_hwaccel = {
-    .p.name               = "hevc_d3d12va",
-    .p.type               = AVMEDIA_TYPE_VIDEO,
-    .p.id                 = AV_CODEC_ID_HEVC,
-    .p.pix_fmt            = AV_PIX_FMT_D3D12,
+const AVHWAccel ff_hevc_d3d12va_hwaccel = {
+    .name                 = "hevc_d3d12va",
+    .type                 = AVMEDIA_TYPE_VIDEO,
+    .id                   = AV_CODEC_ID_HEVC,
+    .pix_fmt              = AV_PIX_FMT_D3D12,
     .init                 = d3d12va_hevc_decode_init,
     .uninit               = ff_d3d12va_decode_uninit,
     .start_frame          = d3d12va_hevc_start_frame,
