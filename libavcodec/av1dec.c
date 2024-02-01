@@ -440,6 +440,7 @@ static int get_pixel_format(AVCodecContext *avctx)
     enum AVPixelFormat pix_fmt = AV_PIX_FMT_NONE;
 #define HWACCEL_MAX (CONFIG_AV1_DXVA2_HWACCEL + \
                      CONFIG_AV1_D3D11VA_HWACCEL * 2 + \
+                     CONFIG_AV1_D3D12VA_HWACCEL + \
                      CONFIG_AV1_NVDEC_HWACCEL + \
                      CONFIG_AV1_VAAPI_HWACCEL + \
                      CONFIG_AV1_VDPAU_HWACCEL)
@@ -501,21 +502,6 @@ static int get_pixel_format(AVCodecContext *avctx)
 
     av_log(avctx, AV_LOG_DEBUG, "AV1 decode get format: %s.\n",
            av_get_pix_fmt_name(pix_fmt));
-
-static int get_pixel_format(AVCodecContext *avctx)
-{
-    AV1DecContext *s = avctx->priv_data;
-    const AV1RawSequenceHeader *seq = s->raw_seq;
-    int ret;
-    enum AVPixelFormat pix_fmt = get_sw_pixel_format(avctx, seq);
-#define HWACCEL_MAX (CONFIG_AV1_DXVA2_HWACCEL + \
-                     CONFIG_AV1_D3D11VA_HWACCEL * 2 + \
-                     CONFIG_AV1_D3D12VA_HWACCEL + \
-                     CONFIG_AV1_NVDEC_HWACCEL + \
-                     CONFIG_AV1_VAAPI_HWACCEL + \
-                     CONFIG_AV1_VDPAU_HWACCEL + \
-                     CONFIG_AV1_VULKAN_HWACCEL)
-    enum AVPixelFormat pix_fmts[HWACCEL_MAX + 2], *fmtp = pix_fmts;
 
     if (pix_fmt == AV_PIX_FMT_NONE)
         return -1;
