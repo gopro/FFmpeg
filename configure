@@ -4040,8 +4040,9 @@ remove_things_bysuffix(){
         if [ "${base_name}" != "" ]; then
             remove_list+="${base_name}${remove_suffix}"$'\n'
         fi
-    done <<< "$things"
-
+    done <<- EOF
+        $things
+EOF
     current_things=$things
 
     # Loop through the remove_list, and filter out each from the things list
@@ -4055,7 +4056,9 @@ remove_things_bysuffix(){
                 current_things=$last_current
             fi
         fi
-    done <<< "$remove_list"
+    done <<- EOF
+        $remove_list
+EOF
 
     # Output the resulting items
     echo "$current_things"
