@@ -220,6 +220,9 @@ static void free_texture(void *opaque, uint8_t *data)
 {
     AVD3D12VAFrame *frame = (AVD3D12VAFrame *)data;
 
+    // Wait texture to be available
+    d3d12va_fence_completion(&frame->sync_ctx);
+
     D3D12_OBJECT_RELEASE(frame->texture);
     D3D12_OBJECT_RELEASE(frame->sync_ctx.fence);
     if (frame->sync_ctx.event)
