@@ -426,6 +426,18 @@ static int mf_sample_to_v_avframe(AVCodecContext *avctx, IMFSample *sample, AVFr
     if ((ret = ff_decode_frame_props(avctx, mf_frame)) < 0)
         return ret;
 
+    if (!(ffcodec(avctx->codec)->caps_internal & FF_CODEC_CAP_SETS_FRAME_PROPS)) {
+        AVPacket *pkt = avctx->internal->last_pkt_props;
+        if (pkt->flags & AV_PKT_FLAG_KEY) {
+            mf_frame->pict_type = AV_PICTURE_TYPE_I;
+            mf_frame->key_frame = 1;
+        }
+        else {
+            mf_frame->pict_type = AV_PICTURE_TYPE_P;
+            mf_frame->key_frame = 0;
+        }
+    }
+
     // ff_decode_frame_props() overwites this
     mf_frame->format = AV_PIX_FMT_MEDIAFOUNDATION;
 
@@ -457,6 +469,8 @@ static int mf_sample_to_v_avframe(AVCodecContext *avctx, IMFSample *sample, AVFr
         frame->width = mf_frame->width;
         frame->height = mf_frame->height;
         frame->format = c->sw_format;
+        frame->key_frame = mf_frame->key_frame;
+        frame->pict_type = mf_frame->pict_type;
 
         if ((ret = ff_get_buffer(avctx, frame, 0)) < 0)
             return ret;
