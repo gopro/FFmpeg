@@ -238,14 +238,8 @@ static int mf_decv_output_type_get(AVCodecContext *avctx, IMFMediaType *type)
     if (width > frame_width || height > frame_height)
         return AVERROR_EXTERNAL;
 
-    // temp variables for various MF property gets
-    UINT t1, t2;
-
-    hr = ff_MFGetAttributeRatio((IMFAttributes *)type, &MF_MT_PIXEL_ASPECT_RATIO, &t1, &t2);
-    if (!FAILED(hr)) {
-        avctx->sample_aspect_ratio.num = t1;
-        avctx->sample_aspect_ratio.den = t2;
-    }
+    // temp variable for various MF property gets
+    UINT t1;
 
     hr = IMFAttributes_GetUINT32(type, &MF_MT_YUV_MATRIX, &t1);
     if (!FAILED(hr)) {
@@ -298,11 +292,11 @@ static int mf_decv_output_type_get(AVCodecContext *avctx, IMFMediaType *type)
         }
     }
 
-    if ((ret = ff_set_dimensions(avctx, frame_width, frame_height)) < 0)
+    ret = av_image_check_size2(width, height, avctx->max_pixels, AV_PIX_FMT_NONE, 0, avctx);
+    if (ret < 0)
         return ret;
-
-    avctx->width = width;
-    avctx->height = height;
+    avctx->coded_width = width;
+    avctx->coded_height = height;
 
     av_buffer_unref(&c->frames_ref);
     c->frames_ref = av_hwframe_ctx_alloc(c->device_ref);
@@ -426,6 +420,18 @@ static int mf_sample_to_v_avframe(AVCodecContext *avctx, IMFSample *sample, AVFr
     if ((ret = ff_decode_frame_props(avctx, mf_frame)) < 0)
         return ret;
 
+    if (!(ffcodec(avctx->codec)->caps_internal & FF_CODEC_CAP_SETS_FRAME_PROPS)) {
+        AVPacket *pkt = avctx->internal->last_pkt_props;
+        if (pkt->flags & AV_PKT_FLAG_KEY) {
+            mf_frame->pict_type = AV_PICTURE_TYPE_I;
+            mf_frame->key_frame = 1;
+        }
+        else {
+            mf_frame->pict_type = AV_PICTURE_TYPE_P;
+            mf_frame->key_frame = 0;
+        }
+    }
+
     // ff_decode_frame_props() overwites this
     mf_frame->format = AV_PIX_FMT_MEDIAFOUNDATION;
 
@@ -457,6 +463,8 @@ static int mf_sample_to_v_avframe(AVCodecContext *avctx, IMFSample *sample, AVFr
         frame->width = mf_frame->width;
         frame->height = mf_frame->height;
         frame->format = c->sw_format;
+        frame->key_frame = mf_frame->key_frame;
+        frame->pict_type = mf_frame->pict_type;
 
         if ((ret = ff_get_buffer(avctx, frame, 0)) < 0)
             return ret;
@@ -638,6 +646,10 @@ static int mf_receive_frame(AVCodecContext *avctx, AVFrame *frame)
             return ret;
         } else if (ret == AVERROR(EAGAIN)) {
             ret = ff_decode_get_packet(avctx, &packet);
+            if (ret == AVERROR_EOF) {
+                ret = mf_send_packet(avctx, NULL); // trigger drain
+                return ret;
+            }
             if (ret < 0) {
                 return ret;
             }
