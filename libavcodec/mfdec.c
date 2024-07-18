@@ -652,6 +652,10 @@ static int mf_receive_frame(AVCodecContext *avctx, AVFrame *frame)
             return ret;
         } else if (ret == AVERROR(EAGAIN)) {
             ret = ff_decode_get_packet(avctx, &packet);
+            if (ret == AVERROR_EOF) {
+                ret = mf_send_packet(avctx, NULL); // trigger drain
+                return ret;
+            }
             if (ret < 0) {
                 return ret;
             }
