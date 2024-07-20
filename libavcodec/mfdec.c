@@ -298,11 +298,11 @@ static int mf_decv_output_type_get(AVCodecContext *avctx, IMFMediaType *type)
         }
     }
 
-    if ((ret = ff_set_dimensions(avctx, frame_width, frame_height)) < 0)
+    ret = av_image_check_size2(width, height, avctx->max_pixels, AV_PIX_FMT_NONE, 0, avctx);
+    if (ret < 0)
         return ret;
-
-    avctx->width = width;
-    avctx->height = height;
+    avctx->coded_width = width;
+    avctx->coded_height = height;
 
     av_buffer_unref(&c->frames_ref);
     c->frames_ref = av_hwframe_ctx_alloc(c->device_ref);
