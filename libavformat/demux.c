@@ -212,6 +212,10 @@ static int update_stream_avctx(AVFormatContext *s)
         AVStream *const st  = s->streams[i];
         FFStream *const sti = ffstream(st);
 
+        if (st->sample_aspect_ratio.num != 0 && st->codecpar->sample_aspect_ratio.num == 0) {
+            st->codecpar->sample_aspect_ratio = st->sample_aspect_ratio;
+        }
+
         if (!sti->need_context_update)
             continue;
 
