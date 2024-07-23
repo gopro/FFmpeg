@@ -623,6 +623,10 @@ static int h264_parse(AVCodecParserContext *s,
 
     parse_nal_units(s, avctx, buf, buf_size);
 
+    if (p->ps.sps != NULL && avctx->sample_aspect_ratio.num == 0) {
+        avctx->sample_aspect_ratio = p->ps.sps->sar;
+    }
+
     if (avctx->framerate.num)
         avctx->time_base = av_inv_q(av_mul_q(avctx->framerate, (AVRational){avctx->ticks_per_frame, 1}));
     if (p->sei.picture_timing.cpb_removal_delay >= 0) {
