@@ -243,8 +243,9 @@ static int mf_decv_output_type_get(AVCodecContext *avctx, IMFMediaType *type)
 
     hr = ff_MFGetAttributeRatio((IMFAttributes *)type, &MF_MT_PIXEL_ASPECT_RATIO, &t1, &t2);
     if (!FAILED(hr)) {
-        avctx->sample_aspect_ratio.num = t1;
-        avctx->sample_aspect_ratio.den = t2;
+        // should be set by stream, stream->codecpar, or H264 SPS
+        // avctx->sample_aspect_ratio.num = t1;
+        // avctx->sample_aspect_ratio.den = t2;
     }
 
     hr = IMFAttributes_GetUINT32(type, &MF_MT_YUV_MATRIX, &t1);
