@@ -1,8 +1,4 @@
 /*
- * Android MediaCodec Surface functions
- *
- * Copyright (c) 2016 Matthieu Bouron <matthieu.bouron stupeflix.com>
- *
  * This file is part of FFmpeg.
  *
  * FFmpeg is free software; you can redistribute it and/or
@@ -20,17 +16,22 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#ifndef AVCODEC_MEDIACODEC_SURFACE_H
-#define AVCODEC_MEDIACODEC_SURFACE_H
+#ifndef AVUTIL_DICT_INTERNAL_H
+#define AVUTIL_DICT_INTERNAL_H
 
-#include "libavcodec/avcodec.h"
+#include <stdint.h>
 
-typedef struct FFANativeWindow {
-    void *surface;
-    void *native_window;
-} FFANativeWindow;
+#include "dict.h"
 
-FFANativeWindow *ff_mediacodec_surface_ref(void *surface, void *native_window, void *log_ctx);
-int ff_mediacodec_surface_unref(FFANativeWindow *window, void *log_ctx);
+/**
+ * Set a dictionary value to an ISO-8601 compliant timestamp string.
+ *
+ * @param dict pointer to a pointer to a dictionary struct. If *dict is NULL
+ *             a dictionary struct is allocated and put in *dict.
+ * @param key metadata key
+ * @param timestamp unix timestamp in microseconds
+ * @return <0 on error
+ */
+int avpriv_dict_set_timestamp(AVDictionary **dict, const char *key, int64_t timestamp);
 
-#endif /* AVCODEC_MEDIACODEC_SURFACE_H */
+#endif /* AVUTIL_DICT_INTERNAL_H */
