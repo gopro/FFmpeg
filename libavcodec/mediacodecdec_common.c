@@ -730,6 +730,34 @@ static int mediacodec_dec_flush_codec(AVCodecContext *avctx, MediaCodecDecContex
     return 0;
 }
 
+static int mediacodec_dec_probe(AVCodecContext *avctx, MediaCodecDecContext *s, const char *codec_name, FFAMediaFormat *format)
+{
+    // returns 0 if codec can be successfully configured
+    // otherwise returns non-zero
+    int ret = AVERROR_EXTERNAL;
+    int status;
+    FFAMediaCodec *codec = ff_AMediaCodec_createCodecByName(codec_name, s->use_ndk_codec);
+    if (!codec) {
+        av_log(avctx, AV_LOG_ERROR, "Failed to create codec %s\n", s->codec_name);
+        goto fail;
+    }
+
+    status = ff_AMediaCodec_configure(codec, format, s->surface, NULL, 0);
+    if (status < 0) {
+        char *desc = ff_AMediaFormat_toString(format);
+        av_log(avctx, AV_LOG_ERROR,
+            "Failed to configure codec (status = %d) with format %s\n",
+            status, desc);
+        av_freep(&desc);
+        goto fail;
+    }
+
+    ret = 0;
+fail:
+    ff_AMediaCodec_delete(codec);
+    return ret;
+}
+
 static int mediacodec_dec_get_video_codec(AVCodecContext *avctx, MediaCodecDecContext *s,
                                           const char *mime, FFAMediaFormat *format)
 {
@@ -767,7 +795,33 @@ static int mediacodec_dec_get_video_codec(AVCodecContext *avctx, MediaCodecDecCo
         av_log(avctx, AV_LOG_WARNING, "Unsupported or unknown profile\n");
     }
 
-    s->codec_name = ff_AMediaCodecList_getCodecNameByType(mime, profile, 0, avctx);
+    int nb_names = 0;
+    char **names = NULL;
+    int ret = ff_AMediaCodecList_getCodecNamesByType(&nb_names, &names, mime, profile, 0, avctx);
+    if (ret < 0) {
+        av_log(avctx, AV_LOG_ERROR, "Failed to retrieve codec list for type %s", mime);
+        return AVERROR_EXTERNAL;
+    }
+    av_log(avctx, AV_LOG_INFO, "Found compatible codecs:\n");
+    for (int i = 0; i < nb_names; i++) {
+        av_log(avctx, AV_LOG_INFO, "\t%s\n", names[i]);
+    }
+    ret = 0;
+    for (int i = 0; i < nb_names; i++) {
+        av_log(avctx, AV_LOG_VERBOSE, "Using codec %s\n", names[i]);
+        ret = mediacodec_dec_probe(avctx, s, names[i], format);
+        if (!ret) {
+            // found a valid codec name
+            s->codec_name = av_strdup(names[i]);
+            break;
+        }
+    }
+
+    for (int i = 0; i < nb_names; i++) {
+        av_freep(&names[i]);
+     }
+    av_freep(&names);
+
     if (!s->codec_name) {
         // getCodecNameByType() can fail due to missing JVM, while NDK
         // mediacodec can be used without JVM.
