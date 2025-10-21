@@ -1,4 +1,4 @@
-*.a
+﻿*.a
 *.o
 *.o.*
 *.d
@@ -41,3 +41,4 @@
 /src
 /mapfile
 /tools/python/__pycache__/
+/gopro/patches
