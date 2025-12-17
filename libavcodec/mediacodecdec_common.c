@@ -287,7 +287,10 @@ static void ff_mediacodec_dec_unref(MediaCodecDecContext *s)
 
     if (atomic_fetch_sub(&s->refcount, 1) == 1) {
         if (s->codec) {
-            ff_AMediaCodec_stop(s->codec);
+            if (s->started) {
+                s->started = 0;
+                ff_AMediaCodec_stop(s->codec);
+            }
             ff_AMediaCodec_delete(s->codec);
             s->codec = NULL;
         }
@@ -775,6 +778,20 @@ static int mediacodec_dec_flush_codec(AVCodecContext *avctx, MediaCodecDecContex
     av_freep(&s->pkt_entries);
     s->nb_pkt_entries = 0;
 
+    /* If the codec has already been released or wasn't started, avoid
+     * calling the Java/NDK flush() which may throw IllegalStateException
+     * (e.g. "flush() is valid only at Executing states; currently at Released state").
+     */
+    if (!codec) {
+        av_log(avctx, AV_LOG_DEBUG, "No MediaCodec instance to flush (already released)\n");
+        return 0;
+    }
+
+    if (!s->started) {
+        av_log(avctx, AV_LOG_DEBUG, "MediaCodec not started, skipping flush\n");
+        return 0;
+    }
+
     status = ff_AMediaCodec_flush(codec);
     if (status < 0) {
         av_log(avctx, AV_LOG_ERROR, "Failed to flush codec\n");
@@ -901,7 +918,6 @@ static int mediacodec_dec_get_video_codec(AVCodecContext *avctx, MediaCodecDecCo
         av_log(avctx, AV_LOG_ERROR, "Failed to create media decoder for type %s and name %s\n", mime, s->codec_name);
         return AVERROR_EXTERNAL;
     }
-
     return 0;
 }
 
@@ -920,7 +936,6 @@ static int mediacodec_dec_get_audio_codec(AVCodecContext *avctx, MediaCodecDecCo
         if (!s->codec_name)
             return AVERROR(ENOMEM);
     }
-
     return 0;
 }
 
@@ -967,6 +982,7 @@ int ff_mediacodec_dec_init(AVCodecContext *avctx, MediaCodecDecContext *s,
         ret = AVERROR_EXTERNAL;
         goto fail;
     }
+    s->started = 1;
 
     if (avctx->codec_type == AVMEDIA_TYPE_VIDEO) {
         s->format = ff_AMediaCodec_getOutputFormat(s->codec);
@@ -1240,8 +1256,12 @@ int ff_mediacodec_dec_close(AVCodecContext *avctx, MediaCodecDecContext *s)
 
     if (s->codec) {
         if (atomic_load(&s->hw_buffer_count) == 0) {
-            ff_AMediaCodec_stop(s->codec);
-            av_log(avctx, AV_LOG_DEBUG, "MediaCodec %p stopped\n", s->codec);
+            if(s->started)
+            {
+                s->started = 0;
+                ff_AMediaCodec_stop(s->codec);
+                av_log(avctx, AV_LOG_DEBUG, "MediaCodec %p stopped\n", s->codec);
+            }
         } else {
             av_log(avctx, AV_LOG_DEBUG, "Not stopping MediaCodec (there are buffers pending)\n");
         }
