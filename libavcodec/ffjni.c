@@ -146,14 +146,18 @@ int ff_jni_exception_get_summary(JNIEnv *env, jthrowable exception, char **error
 
     AVBPrint bp;
 
+    int error_code = 0;
     char *name = NULL;
     char *message = NULL;
+    char *diagnostic = NULL;
 
     jclass class_class = NULL;
     jmethodID get_name_id = NULL;
 
     jclass exception_class = NULL;
     jmethodID get_message_id = NULL;
+    jmethodID get_diagnostic_id = NULL;
+    jmethodID get_error_code_id = NULL;
 
     jstring string = NULL;
 
@@ -219,15 +223,54 @@ int ff_jni_exception_get_summary(JNIEnv *env, jthrowable exception, char **error
         string = NULL;
     }
 
+    get_diagnostic_id = (*env)->GetMethodID(env, exception_class, "getDiagnosticInfo", "()Ljava/lang/String;");
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+        // av_log(log_ctx, AV_LOG_ERROR, "Could not find method java/lang/Throwable.getDiagnosticInfo()\n");
+    }
+
+    if (get_diagnostic_id) {
+        string = (*env)->CallObjectMethod(env, exception, get_diagnostic_id);
+        if ((*env)->ExceptionCheck(env)) {
+            (*env)->ExceptionClear(env);
+            av_log(log_ctx, AV_LOG_ERROR, "Throwable.getDiagnosticInfo() threw an exception\n");
+            ret = AVERROR_EXTERNAL;
+            goto done;
+        }
+        if (string) {
+            diagnostic = ff_jni_jstring_to_utf_chars(env, string, log_ctx);
+            (*env)->DeleteLocalRef(env, string);
+            string = NULL;
+        }
+    }
+
+    get_error_code_id = (*env)->GetMethodID(env, exception_class, "getErrorCode", "()I");
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+        // av_log(log_ctx, AV_LOG_ERROR, "Could not find method java/lang/Throwable.getErrorCode()\n");
+    }
+    if (get_error_code_id) {
+        error_code = (*env)->CallIntMethod(env, exception, get_error_code_id);
+        if ((*env)->ExceptionCheck(env)) {
+            (*env)->ExceptionClear(env);
+            av_log(log_ctx, AV_LOG_ERROR, "Throwable.getErrorCode() threw an exception\n");
+            ret = AVERROR_EXTERNAL;
+            goto done;
+        }
+    }
+    if (error_code || diagnostic) {
+        av_log(log_ctx, AV_LOG_WARNING, "XXX %d: %s\n", error_code, diagnostic);
+    }
+
     if (name && message) {
-        av_bprintf(&bp, "%s: %s", name, message);
+        av_bprintf(&bp, "XXX %s: %s", name, message);
     } else if (name && !message) {
-        av_bprintf(&bp, "%s occurred", name);
+        av_bprintf(&bp, "XXX %s occurred", name);
     } else if (!name && message) {
-        av_bprintf(&bp, "Exception: %s", message);
+        av_bprintf(&bp, "XXX Exception: %s", message);
     } else {
         av_log(log_ctx, AV_LOG_WARNING, "Could not retrieve exception name and message\n");
-        av_bprintf(&bp, "Exception occurred");
+        av_bprintf(&bp, "XXX Exception occurred");
     }
 
     ret = av_bprint_finalize(&bp, error);
@@ -261,6 +304,7 @@ int ff_jni_exception_check(JNIEnv *env, int log, void *log_ctx)
     }
 
     exception = (*env)->ExceptionOccurred(env);
+    // (*(env))->ExceptionDescribe((env));
     (*(env))->ExceptionClear((env));
 
     if ((ret = ff_jni_exception_get_summary(env, exception, &message, log_ctx)) < 0) {
