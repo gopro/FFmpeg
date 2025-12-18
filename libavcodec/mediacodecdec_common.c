@@ -324,10 +324,15 @@ static void mediacodec_buffer_release(void *opaque, uint8_t *data)
                buffer->index, buffer, buffer->pts, atomic_load(&ctx->hw_buffer_count));
         /* Only release if codec is still valid and started to avoid
          * "releaseOutputBuffer() is valid only at Executing states; currently at Released state" error.
-         * If ctx->codec is NULL, the codec was already deleted during teardown. */
+         * If ctx->codec is NULL, the codec was already deleted during teardown.
+         * Always check codec state before attempting to release the buffer.
+         */
         if (ctx->codec && ctx->started) {
-            ff_AMediaCodec_releaseOutputBuffer(ctx->codec, buffer->index, 0);
-        } else if (ctx->codec && !ctx->started) {
+            int status = ff_AMediaCodec_releaseOutputBuffer(ctx->codec, buffer->index, 0);
+            if (status < 0) {
+                av_log(ctx->avctx, AV_LOG_DEBUG, "Could not release buffer: %d\n", status);
+            }
+        } else {
             av_log(ctx->avctx, AV_LOG_DEBUG,
                    "Skipping buffer release: codec not in started state (already stopped)\n");
         }
@@ -1141,6 +1146,14 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
     int status;
     int64_t output_dequeue_timeout_us = OUTPUT_DEQUEUE_TIMEOUT_US;
 
+    /* Check if codec is still in valid state before attempting dequeue */
+    if (!codec || !s->started) {
+        av_log(avctx, AV_LOG_DEBUG, "Codec is not in valid state (codec=%p, started=%d)\n",
+               codec, s->started);
+        //return AVERROR(EAGAIN);
+        return AVERROR_EOF;
+    }
+
     if (s->draining && s->eos) {
         return AVERROR_EOF;
     }
@@ -1189,12 +1202,17 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
             s->output_buffer_count++;
             return 0;
         } else {
-            status = ff_AMediaCodec_releaseOutputBuffer(codec, index, 0);
-            if (status < 0) {
-                av_log(avctx, AV_LOG_ERROR, "Failed to release output buffer\n");
+            /* Empty buffer with no data - release it safely */
+            if (s->codec && s->started) {
+                status = ff_AMediaCodec_releaseOutputBuffer(codec, index, 0);
+                if (status < 0) {
+                    av_log(avctx, AV_LOG_DEBUG, "Failed to release empty output buffer: %d\n", status);
+                }
+            } else {
+                av_log(avctx, AV_LOG_DEBUG, "Skipping release of empty buffer - codec not in valid state\n");
             }
-            av_log(avctx, AV_LOG_ERROR, "TTTTTTTTTTTRRRRRR ff_AMediaCodec_releaseOutputBuffer ----------------------\n");
-            return AVERROR_EXTERNAL;
+            /* Empty buffers are not fatal errors - just try again */
+            return AVERROR(EAGAIN);
         }
 
     } else if (ff_AMediaCodec_infoOutputFormatChanged(codec, index)) {
@@ -1205,41 +1223,48 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
         if (s->format) {
             status = ff_AMediaFormat_delete(s->format);
             if (status < 0) {
-                av_log(avctx, AV_LOG_ERROR, "Failed to delete MediaFormat %p\n", s->format);
+                av_log(avctx, AV_LOG_DEBUG, "Failed to delete old MediaFormat\n");
             }
+            s->format = NULL;
         }
 
         s->format = ff_AMediaCodec_getOutputFormat(codec);
         if (!s->format) {
-            av_log(avctx, AV_LOG_ERROR, "Failed to get output format\n");
-            return AVERROR_EXTERNAL;
+            av_log(avctx, AV_LOG_WARNING, "Failed to get new output format, retrying\n");
+            return AVERROR(EAGAIN);
         }
 
         format = ff_AMediaFormat_toString(s->format);
-        if (!format) {
-            return AVERROR_EXTERNAL;
+        if (format) {
+            av_log(avctx, AV_LOG_INFO, "Output MediaFormat: %s\n", format);
+            av_freep(&format);
         }
-        av_log(avctx, AV_LOG_INFO, "Output MediaFormat changed to %s\n", format);
-        av_freep(&format);
 
         if ((ret = mediacodec_dec_parse_format(avctx, s)) < 0) {
-            return ret;
+            av_log(avctx, AV_LOG_WARNING, "Failed to parse format change, will retry\n");
+            return AVERROR(EAGAIN);
         }
+        /* Indicate format change but don't fail - retry on next call */
+        return AVERROR(EAGAIN);
 
     } else if (ff_AMediaCodec_infoOutputBuffersChanged(codec, index)) {
         ff_AMediaCodec_cleanOutputBuffers(codec);
-        av_log(avctx, AV_LOG_ERROR, "TTTTTTTTTTTRRRRRR ff_AMediaCodec_cleanOutputBuffers --- \n");
+        av_log(avctx, AV_LOG_DEBUG, "Output buffers changed\n");
+        return AVERROR(EAGAIN);
+
     } else if (ff_AMediaCodec_infoTryAgainLater(codec, index)) {
-        av_log(avctx, AV_LOG_ERROR, "TTTTTTTTTTTRRRRRR ff_AMediaCodec_infoTryAgainLater --------------- \n");
+        av_log(avctx, AV_LOG_TRACE, "Dequeue timeout - no output available yet\n");
+        /* During drain, a timeout is expected as codec may be slow */
         if (s->draining) {
-            av_log(avctx, AV_LOG_ERROR, "Failed to dequeue output buffer within %" PRIi64 "ms "
-                                        "while draining remaining frames, output will probably lack frames\n",
-                                        output_dequeue_timeout_us / 1000);
-        } else {
-            av_log(avctx, AV_LOG_TRACE, "No output buffer available, try again later\n");
+            av_log(avctx, AV_LOG_TRACE, "Timeout while draining - waiting for frames\n");
         }
+        return AVERROR(EAGAIN);
+
     } else {
         av_log(avctx, AV_LOG_ERROR, "Failed to dequeue output buffer (status=%zd)\n", index);
+        /* Mark codec as no longer in started state after hard error */
+
+        ff_mediacodec_dec_close(avctx, s);
         return AVERROR_EXTERNAL;
     }
 
