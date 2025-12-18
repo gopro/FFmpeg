@@ -961,6 +961,7 @@ int ff_mediacodec_dec_init(AVCodecContext *avctx, MediaCodecDecContext *s,
     atomic_init(&s->hw_buffer_count, 0);
     atomic_init(&s->serial, 1);
     s->current_input_buffer = -1;
+    s->dequeue_timeout_count = 0;
 
     if (avctx->codec_type == AVMEDIA_TYPE_AUDIO)
         ret = mediacodec_dec_get_audio_codec(avctx, s, mime, format);
@@ -1133,7 +1134,7 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
     if (!codec || !s->started) {
         av_log(avctx, AV_LOG_DEBUG, "Codec is not in valid state (codec=%p, started=%d)\n",
                codec, s->started);
-        return AVERROR_EOF;
+        return AVERROR(EAGAIN);
     }
 
     if (s->draining && s->eos) {
@@ -1153,6 +1154,9 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
 
     index = ff_AMediaCodec_dequeueOutputBuffer(codec, &info, output_dequeue_timeout_us);
     if (index >= 0) {
+        /* Reset timeout counter on successful dequeue */
+        s->dequeue_timeout_count = 0;
+        
         av_log(avctx, AV_LOG_TRACE, "Got output buffer %zd"
                 " offset=%" PRIi32 " size=%" PRIi32 " ts=%" PRIi64
                 " flags=%" PRIu32 "\n", index, info.offset, info.size,
@@ -1196,6 +1200,9 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
         }
 
     } else if (ff_AMediaCodec_infoOutputFormatChanged(codec, index)) {
+        /* Reset timeout counter on format change event */
+        s->dequeue_timeout_count = 0;
+        
 
         av_log(avctx, AV_LOG_TRACE, "ff_AMediaCodec_infoOutputFormatChanged\n");
         char *format = NULL;
@@ -1228,12 +1235,29 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
         return AVERROR(EAGAIN);
 
     } else if (ff_AMediaCodec_infoOutputBuffersChanged(codec, index)) {
+        /* Reset timeout counter on buffer change event */
+        s->dequeue_timeout_count = 0;
+        
         ff_AMediaCodec_cleanOutputBuffers(codec);
         av_log(avctx, AV_LOG_TRACE, "Output buffers changed\n");
         return AVERROR(EAGAIN);
 
     } else if (ff_AMediaCodec_infoTryAgainLater(codec, index)) {
         av_log(avctx, AV_LOG_TRACE, "Dequeue timeout - no output available yet\n");
+        
+        /* Track consecutive timeouts to detect codec hangs */
+        s->dequeue_timeout_count++;
+        
+        /* If we timeout too many times in a row, the codec is likely hung */
+        if (s->dequeue_timeout_count > 10) {
+            av_log(avctx, AV_LOG_WARNING, 
+                   "Codec stuck: %d consecutive dequeue timeouts, forcing restart\n",
+                   s->dequeue_timeout_count);
+            s->started = 0;
+            s->dequeue_timeout_count = 0;
+            return AVERROR_EXTERNAL;
+        }
+        
         /* During drain, a timeout is expected as codec may be slow */
         if (s->draining) {
             av_log(avctx, AV_LOG_TRACE, "Timeout while draining - waiting for frames\n");

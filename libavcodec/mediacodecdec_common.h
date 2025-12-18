@@ -78,6 +78,10 @@ typedef struct MediaCodecDecContext {
     bool use_ndk_codec;
     MediaCodecPacketEntry *pkt_entries;
     int nb_pkt_entries;
+    
+    /* Track consecutive dequeue timeouts to detect codec hangs */
+    int dequeue_timeout_count;
+    int64_t last_dequeue_time;
 
 } MediaCodecDecContext;
 
