@@ -1224,11 +1224,6 @@ static int codec_init_static_fields(FFAMediaCodecJni *codec)
 
     JNI_GET_ENV_OR_RETURN(env, codec, AVERROR_EXTERNAL);
 
-    codec->INFO_TRY_AGAIN_LATER = (*env)->GetStaticIntField(env, codec->jfields.mediacodec_class, codec->jfields.info_try_again_later_id);
-    if ((ret = ff_jni_exception_check(env, 1, codec)) < 0) {
-        goto fail;
-    }
-
     codec->BUFFER_FLAG_CODEC_CONFIG = (*env)->GetStaticIntField(env, codec->jfields.mediacodec_class, codec->jfields.buffer_flag_codec_config_id);
     if ((ret = ff_jni_exception_check(env, 1, codec)) < 0) {
         goto fail;
