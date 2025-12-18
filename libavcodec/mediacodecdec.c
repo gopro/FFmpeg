@@ -541,9 +541,9 @@ static int mediacodec_receive_frame(AVCodecContext *avctx, AVFrame *frame)
                  * both avcodec_send_packet() and avcodec_receive_frame()
                  * return EAGAIN, which violate the design.
                  */
-                if (ff_AMediaCodec_infoTryAgainLater(s->ctx->codec, index) &&
+                /*if (ff_AMediaCodec_infoTryAgainLater(s->ctx->codec, index) &&
                     ret == AVERROR(EAGAIN))
-                    continue;
+                    continue;*/
                 return ret;
             }
             s->ctx->current_input_buffer = index;
