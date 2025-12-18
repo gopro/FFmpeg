@@ -1193,9 +1193,13 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
             if (status < 0) {
                 av_log(avctx, AV_LOG_ERROR, "Failed to release output buffer\n");
             }
+            av_log(avctx, AV_LOG_ERROR, "TTTTTTTTTTTRRRRRR ff_AMediaCodec_releaseOutputBuffer ----------------------\n");
+            return AVERROR_EXTERNAL;
         }
 
     } else if (ff_AMediaCodec_infoOutputFormatChanged(codec, index)) {
+
+        av_log(avctx, AV_LOG_ERROR, "TTTTTTTTTTTRRRRRR ff_AMediaCodec_infoOutputFormatChanged\n");
         char *format = NULL;
 
         if (s->format) {
@@ -1224,7 +1228,9 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
 
     } else if (ff_AMediaCodec_infoOutputBuffersChanged(codec, index)) {
         ff_AMediaCodec_cleanOutputBuffers(codec);
+        av_log(avctx, AV_LOG_ERROR, "TTTTTTTTTTTRRRRRR ff_AMediaCodec_cleanOutputBuffers --- \n");
     } else if (ff_AMediaCodec_infoTryAgainLater(codec, index)) {
+        av_log(avctx, AV_LOG_ERROR, "TTTTTTTTTTTRRRRRR ff_AMediaCodec_infoTryAgainLater --------------- \n");
         if (s->draining) {
             av_log(avctx, AV_LOG_ERROR, "Failed to dequeue output buffer within %" PRIi64 "ms "
                                         "while draining remaining frames, output will probably lack frames\n",
