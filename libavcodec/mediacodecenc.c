@@ -105,13 +105,17 @@ static void mediacodec_output_format(AVCodecContext *avctx)
     MediaCodecEncContext *s = avctx->priv_data;
     char *name = ff_AMediaCodec_getName(s->codec);
     FFAMediaFormat *out_format = ff_AMediaCodec_getOutputFormat(s->codec);
-    char *str = ff_AMediaFormat_toString(out_format);
+    if(out_format)
+    {
+        char *str = ff_AMediaFormat_toString(out_format);
 
-    av_log(avctx, AV_LOG_DEBUG, "MediaCodec encoder %s output format %s\n",
-           name ? name : "unknown", str);
+        av_log(avctx, AV_LOG_DEBUG, "MediaCodec encoder %s output format %s\n",
+            name ? name : "unknown", str? str : "unknown format");
+
+        av_free(str);
+        ff_AMediaFormat_delete(out_format);
+    }
     av_free(name);
-    av_free(str);
-    ff_AMediaFormat_delete(out_format);
 }
 
 static int extract_extradata_support(AVCodecContext *avctx)
