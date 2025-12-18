@@ -1150,8 +1150,7 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
     if (!codec || !s->started) {
         av_log(avctx, AV_LOG_DEBUG, "Codec is not in valid state (codec=%p, started=%d)\n",
                codec, s->started);
-        //return AVERROR(EAGAIN);
-        return AVERROR_EOF;
+        return AVERROR(EAGAIN);
     }
 
     if (s->draining && s->eos) {
@@ -1216,8 +1215,7 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
         }
 
     } else if (ff_AMediaCodec_infoOutputFormatChanged(codec, index)) {
-
-        av_log(avctx, AV_LOG_ERROR, "TTTTTTTTTTTRRRRRR ff_AMediaCodec_infoOutputFormatChanged\n");
+        av_log(avctx, AV_LOG_INFO, "Output format changed\n");
         char *format = NULL;
 
         if (s->format) {
@@ -1263,8 +1261,7 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
     } else {
         av_log(avctx, AV_LOG_ERROR, "Failed to dequeue output buffer (status=%zd)\n", index);
         /* Mark codec as no longer in started state after hard error */
-
-        ff_mediacodec_dec_close(avctx, s);
+        s->started = 0;
         return AVERROR_EXTERNAL;
     }
 
