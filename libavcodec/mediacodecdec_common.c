@@ -1285,7 +1285,7 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
             s->dequeue_timeout_count++;
             
             /* If we timeout too many times in a row, the codec is likely hung */
-            if (s->dequeue_timeout_count > 100)
+            if (s->dequeue_timeout_count > 5000)
             {
                 av_log(avctx, AV_LOG_WARNING, 
                     "Codec stuck: %d consecutive dequeue timeouts, forcing restart\n",
