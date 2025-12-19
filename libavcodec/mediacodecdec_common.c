@@ -1151,7 +1151,7 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
     if (!codec || !s->started) {
         av_log(avctx, AV_LOG_DEBUG, "Codec is not in valid state (codec=%p, started=%d)\n",
                codec, s->started);
-        return AVERROR(EAGAIN);
+        return AVERROR_EOF;
     }
 
     if (s->draining && s->eos) {
