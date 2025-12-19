@@ -23,6 +23,7 @@
 #include <jni.h>
 #include <pthread.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "libavutil/bprint.h"
 #include "libavutil/error.h"
@@ -226,7 +227,7 @@ int ff_jni_exception_get_summary(JNIEnv *env, jthrowable exception, char **error
     get_diagnostic_id = (*env)->GetMethodID(env, exception_class, "getDiagnosticInfo", "()Ljava/lang/String;");
     if ((*env)->ExceptionCheck(env)) {
         (*env)->ExceptionClear(env);
-        // av_log(log_ctx, AV_LOG_ERROR, "Could not find method java/lang/Throwable.getDiagnosticInfo()\n");
+        get_diagnostic_id = NULL;
     }
 
     if (get_diagnostic_id) {
@@ -247,7 +248,7 @@ int ff_jni_exception_get_summary(JNIEnv *env, jthrowable exception, char **error
     get_error_code_id = (*env)->GetMethodID(env, exception_class, "getErrorCode", "()I");
     if ((*env)->ExceptionCheck(env)) {
         (*env)->ExceptionClear(env);
-        // av_log(log_ctx, AV_LOG_ERROR, "Could not find method java/lang/Throwable.getErrorCode()\n");
+        get_error_code_id = NULL;
     }
     if (get_error_code_id) {
         error_code = (*env)->CallIntMethod(env, exception, get_error_code_id);
@@ -259,7 +260,7 @@ int ff_jni_exception_get_summary(JNIEnv *env, jthrowable exception, char **error
         }
     }
     if (error_code || diagnostic) {
-        av_log(log_ctx, AV_LOG_WARNING, "XXX %d: %s\n", error_code, diagnostic);
+        av_log(log_ctx, AV_LOG_WARNING, "XXX MediaCodec error code=%d diagnostic=%s\n", error_code, diagnostic ? diagnostic : "");
     }
 
     if (name && message) {
@@ -278,10 +279,14 @@ done:
 
     av_free(name);
     av_free(message);
+    av_free(diagnostic);
 
-    (*env)->DeleteLocalRef(env, class_class);
-    (*env)->DeleteLocalRef(env, exception_class);
-    (*env)->DeleteLocalRef(env, string);
+    if (class_class)
+        (*env)->DeleteLocalRef(env, class_class);
+    if (exception_class)
+        (*env)->DeleteLocalRef(env, exception_class);
+    if (string)
+        (*env)->DeleteLocalRef(env, string);
 
     return ret;
 }
@@ -313,8 +318,34 @@ int ff_jni_exception_check(JNIEnv *env, int log, void *log_ctx)
     }
 
     (*env)->DeleteLocalRef(env, exception);
-
+    
+    if (!message) {
+        av_log(log_ctx, AV_LOG_ERROR, "Failed to get exception summary\n");
+        return -1;
+    }
+    
     av_log(log_ctx, AV_LOG_ERROR, "%s\n", message);
+
+    /* Detect binder/codec death and return a specific error so callers
+     * can teardown and optionally reinitialize the codec. The Java
+     * exception is logged already by ff_jni_exception_get_summary.
+     */
+    if (strstr(message, "DeadObjectException") || strstr(message, "DeadSystemException")) {
+        av_log(log_ctx, AV_LOG_ERROR, "MediaCodec failed (ENODEV) due to codec/binder death\n");
+        av_free(message);
+        return -1;
+    }
+
+    /* Treat codec INTERNAL/UNKNOWN errors as an I/O/hardware failure
+     * so higher-level code can teardown and fallback to software.
+     * Example message logged by Android: "Codec reported err 0x80000000/UNKNOWN_ERROR"
+     */
+    if (strstr(message, "UNKNOWN_ERROR") || strstr(message, "0x80000000")) {
+        av_log(log_ctx, AV_LOG_ERROR, "MediaCodec failed (UNKNOWN_ERROR)\n");
+        av_free(message);
+        return -1;
+    }
+
     av_free(message);
 
     return -1;
