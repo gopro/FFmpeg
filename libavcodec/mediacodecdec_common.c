@@ -328,6 +328,7 @@ static void mediacodec_buffer_release(void *opaque, uint8_t *data)
          * Always check codec state before attempting to release the buffer.
          */
         if (ctx->codec && ctx->started) {
+            ctx->buffer = NULL;
             int status = ff_AMediaCodec_releaseOutputBuffer(ctx->codec, buffer->index, 0);
             if (status < 0) {
                 av_log(ctx->avctx, AV_LOG_DEBUG, "Could not release buffer: %d\n", status);
@@ -380,7 +381,8 @@ static int mediacodec_wrap_hw_buffer(AVCodecContext *avctx,
         entry->duration = 0;
     }
 
-    buffer = av_mallocz(sizeof(AVMediaCodecBuffer));
+    s->buffer = av_mallocz(sizeof(AVMediaCodecBuffer));
+    buffer = s->buffer;
     if (!buffer) {
         ret = AVERROR(ENOMEM);
         goto fail;
@@ -819,7 +821,11 @@ static int mediacodec_dec_flush_codec(AVCodecContext *avctx, MediaCodecDecContex
         return 0;
     }
 
-    int released = atomic_load(&buffer->released);
+    if(s->buffer == NULL) {
+        av_log(avctx, AV_LOG_ERROR, "Buffer info missing\n");
+        return 0;
+    }
+    int released = atomic_load(&((AVMediaCodecBuffer*)s->buffer)->released);
     if(released) {
         av_log(avctx, AV_LOG_DEBUG, "Do not flush due to released buffers\n");
         return 0;
