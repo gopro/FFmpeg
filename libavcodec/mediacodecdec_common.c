@@ -288,8 +288,8 @@ static void ff_mediacodec_dec_unref(MediaCodecDecContext *s)
     if (atomic_fetch_sub(&s->refcount, 1) == 1) {
         if (s->codec) {
             if (s->started) {
-                ff_AMediaCodec_stop(s->codec);
                 s->started = 0;
+                ff_AMediaCodec_stop(s->codec);
             }
             ff_AMediaCodec_delete(s->codec);
             s->codec = NULL;
@@ -802,6 +802,14 @@ static int mediacodec_dec_flush_codec(AVCodecContext *avctx, MediaCodecDecContex
         av_log(avctx, AV_LOG_DEBUG, "MediaCodec not started, skipping flush\n");
         return 0;
     }
+    
+    /* Additional safety check: ensure no buffers are pending */
+    if (atomic_load(&s->hw_buffer_count) > 0) {
+        av_log(avctx, AV_LOG_DEBUG, 
+               "Skipping flush due to pending buffers (count=%d) - codec in use by application\n",
+               atomic_load(&s->hw_buffer_count));
+        return 0;
+    }
 
     status = ff_AMediaCodec_flush(codec);
     if (status < 0) {
@@ -961,7 +969,6 @@ int ff_mediacodec_dec_init(AVCodecContext *avctx, MediaCodecDecContext *s,
     atomic_init(&s->hw_buffer_count, 0);
     atomic_init(&s->serial, 1);
     s->current_input_buffer = -1;
-    s->dequeue_timeout_count = 0;
 
     if (avctx->codec_type == AVMEDIA_TYPE_AUDIO)
         ret = mediacodec_dec_get_audio_codec(avctx, s, mime, format);
@@ -1259,7 +1266,6 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
                 av_log(avctx, AV_LOG_WARNING, 
                     "Codec stuck: %d consecutive dequeue timeouts, forcing restart\n",
                     s->dequeue_timeout_count);
-                s->started = 0;
                 s->dequeue_timeout_count = 0;
                 return AVERROR_EXTERNAL;
             }
@@ -1270,7 +1276,9 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
         av_log(avctx, AV_LOG_ERROR, "Failed to dequeue output buffer (status=%zd)\n", index);
         /* Mark codec as no longer in started state after hard error */
 
-//         ff_mediacodec_dec_close(avctx, s); // Maybe need to close it here Renan - Todo
+        /* Log specific error indicating buffer allocation or codec failure */
+        av_log(avctx, AV_LOG_WARNING, 
+               "Codec error on dequeue - likely buffer allocation failure or codec crash, restarting codec...\n");
         return AVERROR_EXTERNAL;
     }
 
@@ -1298,6 +1306,19 @@ int ff_mediacodec_dec_flush(AVCodecContext *avctx, MediaCodecDecContext *s)
         av_log(avctx, AV_LOG_DEBUG, "Codec not ready for flush (started=%d, codec=%p)\n", s->started, s->codec);
         return 0;
     }
+    
+    /* CRITICAL: Do not flush if there are pending buffers being released.
+     * Flushing with pending buffers causes "flush() is valid only at Executing states" error
+     * because codec enters Released state while buffers are still held by application.
+     */
+    if (atomic_load(&s->hw_buffer_count) > 0) {
+        av_log(avctx, AV_LOG_DEBUG, 
+               "Cannot flush: %d buffers still pending (held by application)\n",
+               atomic_load(&s->hw_buffer_count));
+        s->flushing = 1;
+        return 0;
+    }
+    
     if (!s->surface || !s->delay_flush || atomic_load(&s->refcount) == 1) {
         int ret;
 
@@ -1323,9 +1344,9 @@ int ff_mediacodec_dec_close(AVCodecContext *avctx, MediaCodecDecContext *s)
         if (atomic_load(&s->hw_buffer_count) == 0) {
             if(s->started)
             {
+                s->started = 0;
                 ff_AMediaCodec_stop(s->codec);
                 av_log(avctx, AV_LOG_DEBUG, "MediaCodec %p stopped\n", s->codec);
-                s->started = 0;
             }
         } else {
             av_log(avctx, AV_LOG_DEBUG, "Not stopping MediaCodec (there are buffers pending)\n");
