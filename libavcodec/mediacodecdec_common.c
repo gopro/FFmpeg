@@ -1262,6 +1262,11 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
 */
 int ff_mediacodec_dec_flush(AVCodecContext *avctx, MediaCodecDecContext *s)
 {
+    if(!s->started)
+    {
+        av_log(avctx, AV_LOG_ERROR, "Nothing to flush yet, not started\n");
+        return 0;
+    }
     if (!s->surface || !s->delay_flush || atomic_load(&s->refcount) == 1) {
         int ret;
 
