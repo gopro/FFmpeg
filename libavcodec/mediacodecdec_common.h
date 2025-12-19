@@ -81,6 +81,7 @@ typedef struct MediaCodecDecContext {
     
     /* Track consecutive dequeue timeouts to detect codec hangs */
     int dequeue_timeout_count;
+    int codec_released_by_resource_manager;
     int64_t last_dequeue_time;
 
 } MediaCodecDecContext;

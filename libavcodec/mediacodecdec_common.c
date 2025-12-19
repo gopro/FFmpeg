@@ -421,11 +421,12 @@ fail:
     if (s->codec && s->started) {
         status = ff_AMediaCodec_releaseOutputBuffer(s->codec, index, 0);
         if (status < 0) {
-            av_log(avctx, AV_LOG_ERROR, "Failed to release output buffer\n");
-            ret = AVERROR_EXTERNAL;
+            av_log(avctx, AV_LOG_DEBUG, "Failed to release buffer on allocation failure (buffer already unavailable): %d\n", status);
         }
     } else if (s->codec && !s->started) {
-        av_log(avctx, AV_LOG_DEBUG, "Skipping buffer release: codec not in started state\n");
+        av_log(avctx, AV_LOG_DEBUG, "Codec not started, skipping buffer release on allocation failure\n");
+    } else {
+        av_log(avctx, AV_LOG_DEBUG, "No codec instance available for buffer release\n");
     }
 
     return ret;
@@ -493,11 +494,10 @@ done:
     if (s->codec && s->started) {
         status = ff_AMediaCodec_releaseOutputBuffer(s->codec, index, 0);
         if (status < 0) {
-            av_log(avctx, AV_LOG_ERROR, "Failed to release output buffer\n");
-            ret = AVERROR_EXTERNAL;
+            av_log(avctx, AV_LOG_DEBUG, "Failed to release audio buffer on wrap failure: %d\n", status);
         }
     } else if (s->codec && !s->started) {
-        av_log(avctx, AV_LOG_DEBUG, "Skipping buffer release: codec not in started state\n");
+        av_log(avctx, AV_LOG_DEBUG, "Codec not started, skipping audio buffer release\n");
     }
 
     return ret;
@@ -585,8 +585,7 @@ done:
     if (s->codec && s->started) {
         status = ff_AMediaCodec_releaseOutputBuffer(s->codec, index, 0);
         if (status < 0) {
-            av_log(avctx, AV_LOG_ERROR, "Failed to release output buffer\n");
-            ret = AVERROR_EXTERNAL;
+            av_log(avctx, AV_LOG_DEBUG, "Failed to release video buffer on wrap failure: %d\n", status);
         }
     } else if (s->codec && !s->started) {
         av_log(avctx, AV_LOG_DEBUG, "Skipping buffer release: codec not in started state\n");
@@ -1262,25 +1261,27 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
 
     } else if (ff_AMediaCodec_infoTryAgainLater(codec, index)) {
         av_log(avctx, AV_LOG_TRACE, "Dequeue timeout - no output available yet\n");
-        
-        /* Track consecutive timeouts to detect codec hangs */
-        s->dequeue_timeout_count++;
-        
-        /* If we timeout too many times in a row, the codec is likely hung */
-        if (s->dequeue_timeout_count > 10) {
-            av_log(avctx, AV_LOG_WARNING, 
-                   "Codec stuck: %d consecutive dequeue timeouts, forcing restart\n",
-                   s->dequeue_timeout_count);
-            s->started = 0;
-            s->dequeue_timeout_count = 0;
-            return AVERROR_EXTERNAL;
-        }
-        
+
         /* During drain, a timeout is expected as codec may be slow */
         if (s->draining) {
             av_log(avctx, AV_LOG_TRACE, "Timeout while draining - waiting for frames\n");
         }
-        return AVERROR(EAGAIN);
+        else
+        {
+            /* Track consecutive timeouts to detect codec hangs */
+            s->dequeue_timeout_count++;
+            
+            /* If we timeout too many times in a row, the codec is likely hung */
+            if (s->dequeue_timeout_count > 100)
+            {
+                av_log(avctx, AV_LOG_WARNING, 
+                    "Codec stuck: %d consecutive dequeue timeouts, forcing restart\n",
+                    s->dequeue_timeout_count);
+                s->started = 0;
+                s->dequeue_timeout_count = 0;
+                return AVERROR_EXTERNAL;
+            }
+        }
 
     } else {
         av_log(avctx, AV_LOG_ERROR, "Failed to dequeue output buffer (status=%zd)\n", index);
@@ -1308,9 +1309,9 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
 */
 int ff_mediacodec_dec_flush(AVCodecContext *avctx, MediaCodecDecContext *s)
 {
-    if(!s->started)
+    if(!s->started || !s->codec)
     {
-        av_log(avctx, AV_LOG_ERROR, "Nothing to flush yet, not started\n");
+        av_log(avctx, AV_LOG_DEBUG, "Codec not ready for flush (started=%d, codec=%p)\n", s->started, s->codec);
         return 0;
     }
     if (!s->surface || !s->delay_flush || atomic_load(&s->refcount) == 1) {
