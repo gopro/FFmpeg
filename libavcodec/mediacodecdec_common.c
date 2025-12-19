@@ -818,7 +818,13 @@ static int mediacodec_dec_flush_codec(AVCodecContext *avctx, MediaCodecDecContex
         av_log(avctx, AV_LOG_DEBUG, "MediaCodec not started, skipping flush\n");
         return 0;
     }
-    
+
+    int released = atomic_load(&buffer->released);
+    if(released) {
+        av_log(avctx, AV_LOG_DEBUG, "Do not flush due to released buffers\n");
+        return 0;
+    }
+
     /* Additional safety check: ensure no buffers are pending */
     if (atomic_load(&s->hw_buffer_count) > 0) {
         av_log(avctx, AV_LOG_DEBUG, 
