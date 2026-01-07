@@ -1357,6 +1357,7 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
 
     } else if (ff_AMediaCodec_infoTryAgainLater(codec, index)) {
         av_log(avctx, AV_LOG_TRACE, "Dequeue timeout - no output available yet\n");
+        TRACY()
 
         /* During drain, a timeout is expected as codec may be slow */
         if (s->draining) {
@@ -1449,8 +1450,12 @@ int ff_mediacodec_dec_flush(AVCodecContext *avctx, MediaCodecDecContext *s)
             TRACY_ZONE_END_ERROR("mediacodec_dec_flush_codec_fail");
             return ret;
         }
-
-        TRACY_ZONE_END_ERROR("flush_performed_no_surface_or_no_ref");
+        if(!s->surface)
+            TRACY_ZONE_END_ERROR("flush_performed_no_surface_or_no_ref");
+        else if(!s->delay_flush)
+            TRACY_ZONE_END_ERROR("flush_performed_no_delay_flush_no_ref");
+        else
+            TRACY_ZONE_END_ERROR("refcount_is_1_flush_performed");
         return 1;
     }
 
