@@ -162,10 +162,12 @@ AVFrame *av_frame_alloc(void)
 
 void av_frame_free(AVFrame **frame)
 {
-    TRACY_ZONE_START("av_frame_free");
     if (!frame || !*frame)
+    {
         return;
+    }
 
+    TRACY_ZONE_START("av_frame_free");
     av_frame_unref(*frame);
     av_freep(frame);
     TRACY_ZONE_END;
