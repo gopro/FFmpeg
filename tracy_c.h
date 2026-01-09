@@ -14,3 +14,6 @@
 #define TRACY_ZONE_END_ERROR(msg) {TRACY_MESSAGE(msg);TRACY_ZONE_END(tracy_ctx);}
 #define TRACY_ZONE_END_ERROR_CODE(msg, ret) {TRACY_MESSAGE(msg); if(ret != 0){TracyCZoneValue(tracy_ctx, ret);} TRACY_ZONE_END(tracy_ctx);}
 #define TRACY_ZONE_END_ERROR_CODE_TEXT(msg, ret) {if(ret != 0){int code = TRACY_DISP_ERROR_TEXT(ret); TracyCZoneText(tracy_ctx, &code, 4);} TRACY_ZONE_END_ERROR_CODE(msg, ret);}
+
+#define TRACY_ZONE_END_OR_ERROR_CODE(msg, ret) {if(ret != 0){TRACY_MESSAGE(msg); TracyCZoneValue(tracy_ctx, ret);} TRACY_ZONE_END(tracy_ctx);}
+#define TRACY_ZONE_END_OR_ERROR_CODE_TEXT(msg, ret) {if(ret != 0){int code = TRACY_DISP_ERROR_TEXT(ret); TracyCZoneText(tracy_ctx, &code, 4);} TRACY_ZONE_END_OR_ERROR_CODE(msg, ret);}
