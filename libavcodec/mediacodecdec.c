@@ -330,7 +330,7 @@ static int common_set_extradata(AVCodecContext *avctx, FFAMediaFormat *format)
 
 static av_cold int mediacodec_decode_init(AVCodecContext *avctx)
 {
-    TRACY_ZONE_START("ff_mediacodec_dec_init");
+    TRACY_ZONE_START("mediacodec_decode_init");
     int ret;
     int sdk_int;
 
@@ -511,7 +511,7 @@ done:
         mediacodec_decode_close(avctx);
     }
 
-    TRACY_ZONE_END;
+    TRACY_ZONE_END_OR_ERROR_CODE_TEXT("mediacodec_decode_init", ret);
     return ret;
 }
 

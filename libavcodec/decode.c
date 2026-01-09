@@ -56,6 +56,8 @@
 #include "thread.h"
 #include "threadprogress.h"
 
+#include "../tracy_c.h"
+
 typedef struct DecodeContext {
     AVCodecInternal avci;
 
@@ -221,12 +223,16 @@ fail:
 
 static int decode_get_packet(AVCodecContext *avctx, AVPacket *pkt)
 {
+    TRACY_ZONE_START("decode_get_packet");
     AVCodecInternal *avci = avctx->internal;
     int ret;
 
     ret = av_bsf_receive_packet(avci->bsf, pkt);
     if (ret < 0)
+    {
+        TRACY_ZONE_END_ERROR_CODE_TEXT("av_bsf_receive_packet_fail", ret);
         return ret;
+    }
 
     if (!(ffcodec(avctx->codec)->caps_internal & FF_CODEC_CAP_SETS_FRAME_PROPS)) {
         ret = extract_packet_props(avctx->internal, pkt);
@@ -238,26 +244,36 @@ static int decode_get_packet(AVCodecContext *avctx, AVPacket *pkt)
     if (ret < 0)
         goto finish;
 
+    TRACY_ZONE_END;
     return 0;
 finish:
+    TRACY_ZONE_END_ERROR_CODE_TEXT("decode_get_packet_fail", ret);
     av_packet_unref(pkt);
     return ret;
 }
 
 int ff_decode_get_packet(AVCodecContext *avctx, AVPacket *pkt)
 {
+    TRACY_ZONE_START("ff_decode_get_packet");
     AVCodecInternal *avci = avctx->internal;
     DecodeContext     *dc = decode_ctx(avci);
 
     if (avci->draining)
+    {
+        TRACY_ZONE_END_ERROR("draining_in_progress->EOF");
         return AVERROR_EOF;
+    }
 
     /* If we are a worker thread, get the next packet from the threading
      * context. Otherwise we are the main (user-facing) context, so we get the
      * next packet from the input filterchain.
      */
     if (avctx->internal->is_frame_mt)
-        return ff_thread_get_packet(avctx, pkt);
+    {
+        int ret = ff_thread_get_packet(avctx, pkt);
+        TRACY_ZONE_END_OR_ERROR_CODE_TEXT("is_frame_mt", ret);
+        return ret;
+    }
 
     while (1) {
         int ret = decode_get_packet(avctx, pkt);
@@ -272,6 +288,7 @@ int ff_decode_get_packet(AVCodecContext *avctx, AVPacket *pkt)
 
         if (ret == AVERROR_EOF)
             avci->draining = 1;
+        TRACY_ZONE_END_OR_ERROR_CODE_TEXT("decode_get_packet", ret);
         return ret;
     }
 }
@@ -726,34 +743,54 @@ FF_ENABLE_DEPRECATION_WARNINGS
 
 int attribute_align_arg avcodec_send_packet(AVCodecContext *avctx, const AVPacket *avpkt)
 {
+    TRACY_ZONE_START("avcodec_send_packet");
     AVCodecInternal *avci = avctx->internal;
     DecodeContext     *dc = decode_ctx(avci);
     int ret;
 
     if (!avcodec_is_open(avctx) || !av_codec_is_decoder(avctx->codec))
+    {
+        TRACY_ZONE_END_ERROR("invalid_state");
         return AVERROR(EINVAL);
+    }
 
     if (dc->draining_started)
+    {
+        TRACY_ZONE_END_ERROR("draining_in_progress->EOF");
         return AVERROR_EOF;
+    }
 
     if (avpkt && !avpkt->size && avpkt->data)
+    {
+        TRACY_ZONE_END_ERROR("invalid_packet");
         return AVERROR(EINVAL);
+    }
 
     if (avpkt && (avpkt->data || avpkt->side_data_elems)) {
         if (!AVPACKET_IS_EMPTY(avci->buffer_pkt))
+        {
+            TRACY_ZONE_END_ERROR("buffer_not_empty");
             return AVERROR(EAGAIN);
+        }
         ret = av_packet_ref(avci->buffer_pkt, avpkt);
         if (ret < 0)
+        {
+            TRACY_ZONE_END_ERROR_CODE_TEXT("av_packet_ref_fail", ret);
             return ret;
+        }
     } else
         dc->draining_started = 1;
 
     if (!avci->buffer_frame->buf[0] && !dc->draining_started) {
         ret = decode_receive_frame_internal(avctx, avci->buffer_frame);
         if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF)
+        {
+            TRACY_ZONE_END_ERROR_CODE_TEXT("decode_receive_frame_internal_fail", ret);
             return ret;
+        }
     }
 
+    TRACY_ZONE_END;
     return 0;
 }
 
@@ -813,18 +850,25 @@ fail:
 
 int ff_decode_receive_frame(AVCodecContext *avctx, AVFrame *frame)
 {
+    TRACY_ZONE_START("ff_decode_receive_frame");
     AVCodecInternal *avci = avctx->internal;
     int ret;
 
     if (!avcodec_is_open(avctx) || !av_codec_is_decoder(avctx->codec))
+    {
+        TRACY_ZONE_END_ERROR("invalid_state");
         return AVERROR(EINVAL);
+    }
 
     if (avci->buffer_frame->buf[0]) {
         av_frame_move_ref(frame, avci->buffer_frame);
     } else {
         ret = decode_receive_frame_internal(avctx, frame);
         if (ret < 0)
+        {
+            TRACY_ZONE_END_ERROR_CODE_TEXT("decode_receive_frame_internal_fail", ret);
             return ret;
+        }
     }
 
     ret = frame_validate(avctx, frame);
@@ -886,9 +930,12 @@ int ff_decode_receive_frame(AVCodecContext *avctx, AVFrame *frame)
         }
     }
 #endif
+
+    TRACY_ZONE_END;
     return 0;
 fail:
     av_frame_unref(frame);
+    TRACY_ZONE_END_ERROR_CODE_TEXT("frame_validate_fail", ret);
     return ret;
 }
 
@@ -1225,12 +1272,14 @@ int avcodec_get_hw_frames_parameters(AVCodecContext *avctx,
 static int hwaccel_init(AVCodecContext *avctx,
                         const FFHWAccel *hwaccel)
 {
+    TRACY_ZONE_START("hwaccel_init");
     int err;
 
     if (hwaccel->p.capabilities & AV_HWACCEL_CODEC_CAP_EXPERIMENTAL &&
         avctx->strict_std_compliance > FF_COMPLIANCE_EXPERIMENTAL) {
         av_log(avctx, AV_LOG_WARNING, "Ignoring experimental hwaccel: %s\n",
                hwaccel->p.name);
+        TRACY_ZONE_END_ERROR("ignore experimental hwaccel");
         return AVERROR_PATCHWELCOME;
     }
 
@@ -1238,7 +1287,10 @@ static int hwaccel_init(AVCodecContext *avctx,
         avctx->internal->hwaccel_priv_data =
             av_mallocz(hwaccel->priv_data_size);
         if (!avctx->internal->hwaccel_priv_data)
+        {
+            TRACY_ZONE_END_ERROR("hwaccel malloc fail");
             return AVERROR(ENOMEM);
+        }
     }
 
     avctx->hwaccel = &hwaccel->p;
@@ -1250,15 +1302,18 @@ static int hwaccel_init(AVCodecContext *avctx,
                    av_get_pix_fmt_name(hwaccel->p.pix_fmt));
             av_freep(&avctx->internal->hwaccel_priv_data);
             avctx->hwaccel = NULL;
+            TRACY_ZONE_END_ERROR_CODE_TEXT("hwaccel init fail", err);
             return err;
         }
     }
 
+    TRACY_ZONE_END;
     return 0;
 }
 
 void ff_hwaccel_uninit(AVCodecContext *avctx)
 {
+    TRACY_ZONE_START("hwaccel_uninit");
     if (FF_HW_HAS_CB(avctx, uninit))
         FF_HW_SIMPLE_CALL(avctx, uninit);
 
@@ -1267,6 +1322,7 @@ void ff_hwaccel_uninit(AVCodecContext *avctx)
     avctx->hwaccel = NULL;
 
     av_buffer_unref(&avctx->hw_frames_ctx);
+    TRACY_ZONE_END;
 }
 
 int ff_get_format(AVCodecContext *avctx, const enum AVPixelFormat *fmt)
