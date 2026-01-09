@@ -43,6 +43,8 @@
 #include "mediacodec_wrapper.h"
 #include "mediacodecdec_common.h"
 
+#include "../tracy_c.h"
+
 /**
  * OMX.k3.video.decoder.avc, OMX.NVIDIA.* OMX.SEC.avc.dec and OMX.google
  * codec workarounds used in various place are taken from the Gstreamer
@@ -313,6 +315,7 @@ static void ff_mediacodec_dec_unref(MediaCodecDecContext *s)
 
 static void mediacodec_buffer_release(void *opaque, uint8_t *data)
 {
+    TRACY_ZONE_START("mediacodec_buffer_release");
     AVMediaCodecBuffer *buffer = opaque;
     MediaCodecDecContext *ctx = buffer->ctx;
     int released = atomic_load(&buffer->released);
@@ -339,6 +342,7 @@ static void mediacodec_buffer_release(void *opaque, uint8_t *data)
 
     ff_mediacodec_dec_unref(ctx);
     av_freep(&buffer);
+    TRACY_ZONE_END
 }
 
 static int mediacodec_wrap_hw_buffer(AVCodecContext *avctx,
@@ -347,6 +351,7 @@ static int mediacodec_wrap_hw_buffer(AVCodecContext *avctx,
                                   FFAMediaCodecBufferInfo *info,
                                   AVFrame *frame)
 {
+    TRACY_ZONE_START("mediacodec_wrap_hw_buffer");
     int ret = 0;
     int status = 0;
     int packet_index;
@@ -413,6 +418,7 @@ static int mediacodec_wrap_hw_buffer(AVCodecContext *avctx,
             "Wrapping output buffer %zd (%p) ts=%"PRId64" [%d pending]\n",
             buffer->index, buffer, buffer->pts, atomic_load(&s->hw_buffer_count));
 
+    TRACY_ZONE_END
     return 0;
 fail:
     av_freep(&buffer);
@@ -427,7 +433,7 @@ fail:
     } else {
         av_log(avctx, AV_LOG_DEBUG, "No codec instance available for buffer release\n");
     }
-
+    TRACY_ZONE_END_ERROR("mediacodec_wrap_hw_buffer_fail"); 
     return ret;
 }
 
@@ -510,6 +516,7 @@ static int mediacodec_wrap_sw_video_buffer(AVCodecContext *avctx,
                                            FFAMediaCodecBufferInfo *info,
                                            AVFrame *frame)
 {
+    TRACY_ZONE_START("mediacodec_wrap_sw_video_buffer");
     int ret = 0;
     int status = 0;
     int packet_index;
@@ -590,6 +597,14 @@ done:
         av_log(avctx, AV_LOG_DEBUG, "Skipping buffer release: codec not in started state\n");
     }
 
+    if (ret != 0)
+    {
+        TRACY_ZONE_END_ERROR("mediacodec_wrap_sw_video_buffer_fail");
+    }
+    else
+    {
+        TRACY_ZONE_END
+    }
     return ret;
 }
 
@@ -622,6 +637,7 @@ static int mediacodec_wrap_sw_buffer(AVCodecContext *avctx,
 
 static int mediacodec_dec_parse_video_format(AVCodecContext *avctx, MediaCodecDecContext *s)
 {
+    TRACY_ZONE_START("mediacodec_dec_parse_video_format");
     int ret = 0;
     int width = 0;
     int height = 0;
@@ -632,11 +648,13 @@ static int mediacodec_dec_parse_video_format(AVCodecContext *avctx, MediaCodecDe
 
     if (!s->format) {
         av_log(avctx, AV_LOG_ERROR, "Output MediaFormat is not set\n");
+        TRACY_ZONE_END_ERROR("no_format");
         return AVERROR(EINVAL);
     }
 
     format = ff_AMediaFormat_toString(s->format);
     if (!format) {
+        TRACY_ZONE_END_ERROR("no_format_string");
         return AVERROR_EXTERNAL;
     }
     av_log(avctx, AV_LOG_DEBUG, "Parsing MediaFormat %s\n", format);
@@ -724,14 +742,18 @@ static int mediacodec_dec_parse_video_format(AVCodecContext *avctx, MediaCodecDe
         width, height);
 
     av_freep(&format);
-    return ff_set_dimensions(avctx, width, height);
+    ret = ff_set_dimensions(avctx, width, height);
+    TRACY_ZONE_END
+    return ret;
 fail:
     av_freep(&format);
+    TRACY_ZONE_END_ERROR("mediacodec_dec_parse_video_format_fail");
     return ret;
 }
 
 static int mediacodec_dec_parse_audio_format(AVCodecContext *avctx, MediaCodecDecContext *s)
 {
+    TRACY_ZONE_START("mediacodec_dec_parse_audio_format");
     int ret = 0;
     int sample_rate = 0;
     int channel_count = 0;
@@ -741,11 +763,13 @@ static int mediacodec_dec_parse_audio_format(AVCodecContext *avctx, MediaCodecDe
 
     if (!s->format) {
         av_log(avctx, AV_LOG_ERROR, "Output MediaFormat is not set\n");
+        TRACY_ZONE_END_ERROR("no_format");
         return AVERROR(EINVAL);
     }
 
     format = ff_AMediaFormat_toString(s->format);
     if (!format) {
+        TRACY_ZONE_END_ERROR("no_format_string");
         return AVERROR_EXTERNAL;
     }
     av_log(avctx, AV_LOG_DEBUG, "Parsing MediaFormat %s\n", format);
@@ -774,6 +798,7 @@ static int mediacodec_dec_parse_audio_format(AVCodecContext *avctx, MediaCodecDe
 
 fail:
     av_freep(&format);
+    TRACY_ZONE_END_ERROR("mediacodec_dec_parse_audio_format_fail");
     return ret;
 }
 
@@ -789,6 +814,7 @@ static int mediacodec_dec_parse_format(AVCodecContext *avctx, MediaCodecDecConte
 
 static int mediacodec_dec_flush_codec(AVCodecContext *avctx, MediaCodecDecContext *s)
 {
+    TRACY_ZONE_START("mediacodec_dec_flush_codec");
     FFAMediaCodec *codec = s->codec;
     int status;
 
@@ -811,11 +837,13 @@ static int mediacodec_dec_flush_codec(AVCodecContext *avctx, MediaCodecDecContex
      */
     if (!codec) {
         av_log(avctx, AV_LOG_DEBUG, "No MediaCodec instance to flush (already released)\n");
+        TRACY_ZONE_END_ERROR("no_codec");
         return 0;
     }
 
     if (!s->started) {
         av_log(avctx, AV_LOG_DEBUG, "MediaCodec not started, skipping flush\n");
+        TRACY_ZONE_END_ERROR("not_started");
         return 0;
     }
 
@@ -824,20 +852,24 @@ static int mediacodec_dec_flush_codec(AVCodecContext *avctx, MediaCodecDecContex
         av_log(avctx, AV_LOG_DEBUG, 
                "Skipping flush due to pending buffers (count=%d) - codec in use by application\n",
                atomic_load(&s->hw_buffer_count));
+        TRACY_ZONE_END_ERROR("pending_buffers");
         return 0;
     }
 
     status = ff_AMediaCodec_flush(codec);
     if (status < 0) {
         av_log(avctx, AV_LOG_ERROR, "Failed to flush codec\n");
+        TRACY_ZONE_END_ERROR("flush_failed");
         return AVERROR_EXTERNAL;
     }
 
+    TRACY_ZONE_END
     return 0;
 }
 
 static int mediacodec_dec_probe(AVCodecContext *avctx, MediaCodecDecContext *s, const char *codec_name, FFAMediaFormat *format)
 {
+    TRACY_ZONE_START("mediacodec_dec_probe");
     // returns 0 if codec can be successfully configured
     // otherwise returns non-zero
     int ret = AVERROR_EXTERNAL;
@@ -861,12 +893,22 @@ static int mediacodec_dec_probe(AVCodecContext *avctx, MediaCodecDecContext *s, 
     ret = 0;
 fail:
     ff_AMediaCodec_delete(codec);
+    if(ret == 0)
+    {
+        TRACY_ZONE_END
+    }
+    else
+    {
+        TRACY_ZONE_END_ERROR("mediacodec_dec_probe_fail");
+    }
     return ret;
 }
 
 static int mediacodec_dec_get_video_codec(AVCodecContext *avctx, MediaCodecDecContext *s,
                                           const char *mime, FFAMediaFormat *format)
 {
+    TRACY_ZONE_START("mediacodec_dec_get_video_codec");
+
     int profile;
 
     enum AVPixelFormat pix_fmt;
@@ -906,6 +948,7 @@ static int mediacodec_dec_get_video_codec(AVCodecContext *avctx, MediaCodecDecCo
     int ret = ff_AMediaCodecList_getCodecNamesByType(&nb_names, &names, mime, profile, 0, avctx);
     if (ret < 0) {
         av_log(avctx, AV_LOG_ERROR, "Failed to retrieve codec list for type %s", mime);
+        TRACY_ZONE_END_ERROR("get_codec_names_fail on mine");
         return AVERROR_EXTERNAL;
     }
     av_log(avctx, AV_LOG_INFO, "Found compatible codecs:\n");
@@ -932,6 +975,7 @@ static int mediacodec_dec_get_video_codec(AVCodecContext *avctx, MediaCodecDecCo
         // getCodecNameByType() can fail due to missing JVM, while NDK
         // mediacodec can be used without JVM.
         if (!s->use_ndk_codec) {
+            TRACY_ZONE_END_ERROR("no_valid_codec_name, missing JVM");
             return AVERROR_EXTERNAL;
         }
         av_log(avctx, AV_LOG_INFO, "Failed to getCodecNameByType\n");
@@ -951,17 +995,21 @@ static int mediacodec_dec_get_video_codec(AVCodecContext *avctx, MediaCodecDecCo
     }
     if (!s->codec) {
         av_log(avctx, AV_LOG_ERROR, "Failed to create media decoder for type %s and name %s\n", mime, s->codec_name);
+        TRACY_ZONE_END_ERROR("mediacodec_dec_get_video_codec_fail");
         return AVERROR_EXTERNAL;
     }
+    TRACY_ZONE_END
     return 0;
 }
 
 static int mediacodec_dec_get_audio_codec(AVCodecContext *avctx, MediaCodecDecContext *s,
                                           const char *mime, FFAMediaFormat *format)
 {
+    TRACY_ZONE_START("mediacodec_dec_get_audio_codec");
     s->codec = ff_AMediaCodec_createDecoderByType(mime, s->use_ndk_codec);
     if (!s->codec) {
         av_log(avctx, AV_LOG_ERROR, "Failed to create media decoder for mime %s\n", mime);
+        TRACY_ZONE_END_ERROR("mediacodec_dec_get_audio_codec_fail");
         return AVERROR_EXTERNAL;
     }
 
@@ -969,14 +1017,19 @@ static int mediacodec_dec_get_audio_codec(AVCodecContext *avctx, MediaCodecDecCo
     if (!s->codec_name) {
         s->codec_name = av_strdup(mime);
         if (!s->codec_name)
+        {
+            TRACY_ZONE_END_ERROR("mediacodec_dec_get_audio_codec_nomem");
             return AVERROR(ENOMEM);
+        }
     }
+    TRACY_ZONE_END
     return 0;
 }
 
 int ff_mediacodec_dec_init(AVCodecContext *avctx, MediaCodecDecContext *s,
                            const char *mime, FFAMediaFormat *format)
 {
+    TRACY_ZONE_START("ff_mediacodec_dec_init");
     int ret;
     int status;
 
@@ -1033,17 +1086,20 @@ int ff_mediacodec_dec_init(AVCodecContext *avctx, MediaCodecDecContext *s,
 
     av_log(avctx, AV_LOG_DEBUG, "MediaCodec %p started successfully\n", s->codec);
 
+    TRACY_ZONE_END
     return 0;
 
 fail:
     av_log(avctx, AV_LOG_ERROR, "MediaCodec %p failed to start\n", s->codec);
     ff_mediacodec_dec_close(avctx, s);
+    TRACY_ZONE_END_ERROR("ff_mediacodec_dec_init_fail");
     return ret;
 }
 
 int ff_mediacodec_dec_send(AVCodecContext *avctx, MediaCodecDecContext *s,
                            AVPacket *pkt, bool wait)
 {
+    TRACY_ZONE_START("ff_mediacodec_dec_send");
     int ret;
     int offset = 0;
     int need_draining = 0;
@@ -1057,6 +1113,7 @@ int ff_mediacodec_dec_send(AVCodecContext *avctx, MediaCodecDecContext *s,
     if (s->flushing) {
         av_log(avctx, AV_LOG_ERROR, "Decoder is flushing and cannot accept new buffer "
                                     "until all output buffers have been released\n");
+        TRACY_ZONE_END_ERROR("decoder_flushing");
         return AVERROR_EXTERNAL;
     }
 
@@ -1065,6 +1122,7 @@ int ff_mediacodec_dec_send(AVCodecContext *avctx, MediaCodecDecContext *s,
     }
 
     if (s->draining && s->eos) {
+        TRACY_ZONE_END_ERROR("decoder_eos");
         return AVERROR_EOF;
     }
 
@@ -1079,6 +1137,7 @@ int ff_mediacodec_dec_send(AVCodecContext *avctx, MediaCodecDecContext *s,
 
             if (index < 0) {
                 av_log(avctx, AV_LOG_ERROR, "Failed to dequeue input buffer (status=%zd)\n", index);
+                TRACY_ZONE_END_ERROR("dequeue_input_buffer_fail");
                 return AVERROR_EXTERNAL;
             }
         }
@@ -1087,6 +1146,7 @@ int ff_mediacodec_dec_send(AVCodecContext *avctx, MediaCodecDecContext *s,
         data = ff_AMediaCodec_getInputBuffer(codec, index, &size);
         if (!data) {
             av_log(avctx, AV_LOG_ERROR, "Failed to get input buffer\n");
+            TRACY_ZONE_END_ERROR("get_input_buffer_fail");
             return AVERROR_EXTERNAL;
         }
 
@@ -1107,16 +1167,21 @@ int ff_mediacodec_dec_send(AVCodecContext *avctx, MediaCodecDecContext *s,
             status = ff_AMediaCodec_queueInputBuffer(codec, index, 0, 0, pts, flags);
             if (status < 0) {
                 av_log(avctx, AV_LOG_ERROR, "Failed to queue input empty buffer (status = %d)\n", status);
+                TRACY_ZONE_END_ERROR("queue_eos_buffer_fail");
                 return AVERROR_EXTERNAL;
             }
             ret = mc_add_packet_entry(s, pts, pkt->duration);
             if (ret < 0)
+            {
+                TRACY_ZONE_END_ERROR("mc_add_packet_entry_fail");
                 return ret;
+            }
 
             av_log(avctx, AV_LOG_TRACE,
                    "Queued empty EOS input buffer %zd with flags=%d\n", index, flags);
 
             s->draining = 1;
+            TRACY_ZONE_END_ERROR("need_draining");
             return 0;
         }
 
@@ -1127,24 +1192,33 @@ int ff_mediacodec_dec_send(AVCodecContext *avctx, MediaCodecDecContext *s,
         status = ff_AMediaCodec_queueInputBuffer(codec, index, 0, size, pts, 0);
         if (status < 0) {
             av_log(avctx, AV_LOG_ERROR, "Failed to queue input buffer (status = %d)\n", status);
+            TRACY_ZONE_END_ERROR("queue_input_buffer_fail");
             return AVERROR_EXTERNAL;
         }
         ret = mc_add_packet_entry(s, pts, pkt->duration);
         if (ret < 0)
+        {
+            TRACY_ZONE_END_ERROR("mc_add_packet_entry_fail");
             return ret;
+        }
 
         av_log(avctx, AV_LOG_TRACE,
                "Queued input buffer %zd size=%zd ts=%"PRIi64"\n", index, size, pts);
     }
 
     if (offset == 0)
+    {
+        TRACY_ZONE_END_ERROR("offest_is_0_try_again");
         return AVERROR(EAGAIN);
+    }
+    TRACY_ZONE_END
     return offset;
 }
 
 int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
                               AVFrame *frame, bool wait)
 {
+    TRACY_ZONE_START("ff_mediacodec_dec_receive");
     int ret;
     uint8_t *data;
     ssize_t index;
@@ -1158,10 +1232,12 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
     if (!codec || !s->started) {
         av_log(avctx, AV_LOG_DEBUG, "Codec is not in valid state (codec=%p, started=%d)\n",
                codec, s->started);
+        TRACY_ZONE_END_ERROR("codec_not_valid_or_not_started");
         return AVERROR_EOF;
     }
 
     if (s->draining && s->eos) {
+        TRACY_ZONE_END_ERROR("decoder_eos");
         return AVERROR_EOF;
     }
 
@@ -1194,17 +1270,20 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
             if (s->surface) {
                 if ((ret = mediacodec_wrap_hw_buffer(avctx, s, index, &info, frame)) < 0) {
                     av_log(avctx, AV_LOG_ERROR, "Failed to wrap MediaCodec buffer\n");
+                    TRACY_ZONE_END_ERROR("wrap_hw_buffer_fail");
                     return ret;
                 }
             } else {
                 data = ff_AMediaCodec_getOutputBuffer(codec, index, &size);
                 if (!data) {
                     av_log(avctx, AV_LOG_ERROR, "Failed to get output buffer\n");
+                    TRACY_ZONE_END_ERROR("get_output_buffer_fail");
                     return AVERROR_EXTERNAL;
                 }
 
                 if ((ret = mediacodec_wrap_sw_buffer(avctx, s, data, size, index, &info, frame)) < 0) {
                     av_log(avctx, AV_LOG_ERROR, "Failed to wrap MediaCodec buffer\n");
+                    TRACY_ZONE_END_ERROR("wrap_sw_buffer_fail");
                     return ret;
                 }
             }
@@ -1213,6 +1292,7 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
              * This prevents forced restart during normal playback */
             s->last_dequeue_time = av_gettime();
             s->output_buffer_count++;
+            TRACY_ZONE_END
             return 0;
         } else {
             /* Empty buffer with no data - release it safely */
@@ -1225,6 +1305,7 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
                 av_log(avctx, AV_LOG_DEBUG, "Skipping release of empty buffer - codec not in valid state\n");
             }
             /* Empty buffers are not fatal errors - just try again */
+            TRACY_ZONE_END_ERROR("empty_buffer_no_data_try_again");
             return AVERROR(EAGAIN);
         }
 
@@ -1246,6 +1327,7 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
         s->format = ff_AMediaCodec_getOutputFormat(codec);
         if (!s->format) {
             av_log(avctx, AV_LOG_WARNING, "Failed to get new output format, retrying\n");
+            TRACY_ZONE_END_ERROR("get_new_output_format_fail_try_again");
             return AVERROR(EAGAIN);
         }
 
@@ -1257,9 +1339,11 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
 
         if ((ret = mediacodec_dec_parse_format(avctx, s)) < 0) {
             av_log(avctx, AV_LOG_WARNING, "Failed to parse format change, will retry\n");
+            TRACY_ZONE_END_ERROR("parse_format_change_fail_try_again");
             return AVERROR(EAGAIN);
         }
         /* Indicate format change but don't fail - retry on next call */
+        TRACY_ZONE_END_ERROR("format_change_try_again");
         return AVERROR(EAGAIN);
 
     } else if (ff_AMediaCodec_infoOutputBuffersChanged(codec, index)) {
@@ -1268,6 +1352,7 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
         
         ff_AMediaCodec_cleanOutputBuffers(codec);
         av_log(avctx, AV_LOG_DEBUG, "Output buffers changed\n");
+        TRACY_ZONE_END_ERROR("output_buffers_changed_try_again");
         return AVERROR(EAGAIN);
 
     } else if (ff_AMediaCodec_infoTryAgainLater(codec, index)) {
@@ -1293,6 +1378,7 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
                         "Codec stuck: No output buffer for %.2f seconds, forcing restart\n",
                         elapsed_us / 1000000.0);
                     s->last_dequeue_time = 0;
+                    TRACY_ZONE_END_ERROR("codec_stuck_no_output_restart");
                     return AVERROR_EXTERNAL;
                 }
             }
@@ -1306,11 +1392,16 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
         /* Log specific error indicating buffer allocation or codec failure */
         av_log(avctx, AV_LOG_WARNING, 
                "Codec error on dequeue - likely buffer allocation failure or codec crash, restarting codec...\n");
+        TRACY_ZONE_END_ERROR("dequeue_output_buffer_fail_restart");
         return AVERROR_EXTERNAL;
     }
 
     if (s->draining && s->eos)
+    {
+        TRACY_ZONE_END_ERROR("decoder_eos");
         return AVERROR_EOF;
+    }
+    TRACY_ZONE_END_ERROR("no_output_try_again");
     return AVERROR(EAGAIN);
 }
 
@@ -1328,9 +1419,11 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
 */
 int ff_mediacodec_dec_flush(AVCodecContext *avctx, MediaCodecDecContext *s)
 {
+    TRACY_ZONE_START("ff_mediacodec_dec_flush");
     if(!s->started || !s->codec)
     {
         av_log(avctx, AV_LOG_DEBUG, "Codec not ready for flush (started=%d, codec=%p)\n", s->started, s->codec);
+        TRACY_ZONE_END_ERROR("codec_not_ready_for_flush");
         return 0;
     }
     
@@ -1343,6 +1436,7 @@ int ff_mediacodec_dec_flush(AVCodecContext *avctx, MediaCodecDecContext *s)
                "Cannot flush: %d buffers still pending (held by application)\n",
                atomic_load(&s->hw_buffer_count));
         s->flushing = 1;
+        TRACY_ZONE_END_ERROR("buffers_pending_cannot_flush");
         return 0;
     }
     
@@ -1352,20 +1446,27 @@ int ff_mediacodec_dec_flush(AVCodecContext *avctx, MediaCodecDecContext *s)
         /* No frames (holding a reference to the codec) are retained by the
          * user, thus we can flush the codec and returns accordingly */
         if ((ret = mediacodec_dec_flush_codec(avctx, s)) < 0) {
+            TRACY_ZONE_END_ERROR("mediacodec_dec_flush_codec_fail");
             return ret;
         }
 
+        TRACY_ZONE_END_ERROR("flush_performed_no_surface_or_no_ref");
         return 1;
     }
 
     s->flushing = 1;
+    TRACY_ZONE_END;
     return 0;
 }
 
 int ff_mediacodec_dec_close(AVCodecContext *avctx, MediaCodecDecContext *s)
 {
+    TRACY_ZONE_START("ff_mediacodec_dec_close");
     if (!s)
+    {
+        TRACY_ZONE_END_ERROR("no_context");
         return 0;
+    }
 
     if (s->codec) {
         if (atomic_load(&s->hw_buffer_count) == 0) {
@@ -1382,6 +1483,7 @@ int ff_mediacodec_dec_close(AVCodecContext *avctx, MediaCodecDecContext *s)
 
     ff_mediacodec_dec_unref(s);
 
+    TRACY_ZONE_END
     return 0;
 }
 

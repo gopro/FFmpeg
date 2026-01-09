@@ -27,6 +27,7 @@
 #include "mem.h"
 #include "samplefmt.h"
 #include "hwcontext.h"
+#include "../tracy_c.h"
 
 static const AVSideDataDescriptor sd_props[] = {
     [AV_FRAME_DATA_PANSCAN]                     = { "AVPanScan" },
@@ -161,11 +162,13 @@ AVFrame *av_frame_alloc(void)
 
 void av_frame_free(AVFrame **frame)
 {
+    TRACY_ZONE_START("av_frame_free");
     if (!frame || !*frame)
         return;
 
     av_frame_unref(*frame);
     av_freep(frame);
+    TRACY_ZONE_END;
 }
 
 #define ALIGN (HAVE_SIMD_ALIGN_64 ? 64 : 32)
@@ -609,9 +612,13 @@ AVFrame *av_frame_clone(const AVFrame *src)
 
 void av_frame_unref(AVFrame *frame)
 {
+    TRACY_ZONE_START("av_frame_unref");
     if (!frame)
+    {
+        TRACY_ZONE_END_ERROR("no_frame");
         return;
-
+    }
+    
     frame_side_data_wipe(frame);
 
     for (int i = 0; i < FF_ARRAY_ELEMS(frame->buf); i++)
@@ -632,6 +639,7 @@ void av_frame_unref(AVFrame *frame)
     av_channel_layout_uninit(&frame->ch_layout);
 
     get_frame_defaults(frame);
+    TRACY_ZONE_END;
 }
 
 void av_frame_move_ref(AVFrame *dst, AVFrame *src)
