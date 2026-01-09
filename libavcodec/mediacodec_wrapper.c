@@ -35,6 +35,8 @@
 #include "ffjni.h"
 #include "mediacodec_wrapper.h"
 
+#include "../tracy_c.h"
+
 struct JNIAMediaCodecListFields {
 
     jclass mediacodec_list_class;
@@ -2466,25 +2468,44 @@ FFAMediaFormat *ff_AMediaFormat_new(int ndk)
 
 FFAMediaCodec* ff_AMediaCodec_createCodecByName(const char *name, int ndk)
 {
+    TRACY_ZONE_START("ff_AMediaCodec_createCodecByName")
+    FFAMediaCodec* ret;
     if (ndk)
-        return media_codec_ndk.createCodecByName(name);
-    return media_codec_jni.createCodecByName(name);
+    {
+        ret = media_codec_ndk.createCodecByName(name);
+        TRACY_ZONE_END_ERROR("codec_ndk");
+    }
+    else
+    {
+        ret = media_codec_jni.createCodecByName(name);
+        TRACY_ZONE_END_ERROR("codec_jni");
+    }
+    return ret;
 }
 
 FFAMediaCodec* ff_AMediaCodec_createDecoderByType(const char *mime_type, int ndk)
 {
-   if (ndk)
-        return media_codec_ndk.createDecoderByType(mime_type);
-    return media_codec_jni.createDecoderByType(mime_type);
+    TRACY_ZONE_START("ff_AMediaCodec_createDecoderByType")
+    FFAMediaCodec* ret;
+    if (ndk)
+        ret = media_codec_ndk.createDecoderByType(mime_type);
+    else
+        ret = media_codec_jni.createDecoderByType(mime_type);
+    TRACY_ZONE_END;
+    return ret;
 }
 
 FFAMediaCodec* ff_AMediaCodec_createEncoderByType(const char *mime_type, int ndk)
 {
+    TRACY_ZONE_START("ff_AMediaCodec_createEncoderByType")
+    FFAMediaCodec* ret;
     if (ndk)
-        return media_codec_ndk.createEncoderByType(mime_type);
-    return media_codec_jni.createEncoderByType(mime_type);
+        ret = media_codec_ndk.createEncoderByType(mime_type);
+    else
+        ret = media_codec_jni.createEncoderByType(mime_type);
+    TRACY_ZONE_END;
+    return ret;
 }
-
 int ff_Build_SDK_INT(AVCodecContext *avctx)
 {
     int ret = -1;

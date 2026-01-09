@@ -29,6 +29,8 @@
 #include "avcodec.h"
 #include "mediacodec_surface.h"
 
+#include "../tracy_c.h"
+
 /**
  * The following API around MediaCodec and MediaFormat is based on the
  * NDK one provided by Google since Android 5.0.
@@ -91,7 +93,10 @@ FFAMediaFormat *ff_AMediaFormat_new(int ndk);
 
 static inline int ff_AMediaFormat_delete(FFAMediaFormat* format)
 {
-    return format->delete(format);
+    TRACY_ZONE_START("ff_AMediaFormat_delete");
+    int ret = format->delete(format);
+    TRACY_ZONE_END_OR_ERROR_CODE_TEXT("ff_AMediaFormat_delete_fail", ret);
+    return ret;
 }
 
 static inline char* ff_AMediaFormat_toString(FFAMediaFormat* format)
@@ -235,27 +240,42 @@ static inline int ff_AMediaCodec_configure(FFAMediaCodec *codec,
                                            FFANativeWindow *surface,
                                            void *crypto, uint32_t flags)
 {
-    return codec->configure(codec, format, surface, crypto, flags);
+    TRACY_ZONE_START("ff_AMediaCodec_configure");
+    int ret = codec->configure(codec, format, surface, crypto, flags);
+    TRACY_ZONE_END_OR_ERROR_CODE_TEXT("ff_AMediaCodec_configure_fail", ret);
+    return ret;
 }
 
 static inline int ff_AMediaCodec_start(FFAMediaCodec* codec)
 {
-    return codec->start(codec);
+    TRACY_ZONE_START("ff_AMediaCodec_start");
+    int ret = codec->start(codec);
+    TRACY_ZONE_END_OR_ERROR_CODE_TEXT("ff_AMediaCodec_start_fail", ret);
+    return ret;
 }
 
 static inline int ff_AMediaCodec_stop(FFAMediaCodec* codec)
 {
-    return codec->stop(codec);
+    TRACY_ZONE_START("ff_AMediaCodec_stop");
+    int ret = codec->stop(codec);
+    TRACY_ZONE_END_OR_ERROR_CODE_TEXT("ff_AMediaCodec_stop_fail", ret);
+    return ret;
 }
 
 static inline int ff_AMediaCodec_flush(FFAMediaCodec* codec)
 {
-    return codec->flush(codec);
+    TRACY_ZONE_START("ff_AMediaCodec_flush");
+    int ret = codec->flush(codec);
+    TRACY_ZONE_END_OR_ERROR_CODE_TEXT("ff_AMediaCodec_flush_fail", ret);
+    return ret;
 }
 
 static inline int ff_AMediaCodec_delete(FFAMediaCodec* codec)
 {
-    return codec->delete(codec);
+    TRACY_ZONE_START("ff_AMediaCodec_delete");
+    int ret = codec->delete(codec);
+    TRACY_ZONE_END_OR_ERROR_CODE_TEXT("ff_AMediaCodec_delete_fail", ret);
+    return ret;
 }
 
 static inline uint8_t* ff_AMediaCodec_getInputBuffer(FFAMediaCodec* codec, size_t idx, size_t *out_size)
@@ -275,7 +295,10 @@ static inline ssize_t ff_AMediaCodec_dequeueInputBuffer(FFAMediaCodec* codec, in
 
 static inline int ff_AMediaCodec_queueInputBuffer(FFAMediaCodec *codec, size_t idx, off_t offset, size_t size, uint64_t time, uint32_t flags)
 {
-    return codec->queueInputBuffer(codec, idx, offset, size, time, flags);
+    TRACY_ZONE_START("ff_AMediaCodec_queueInputBuffer");
+    int ret = codec->queueInputBuffer(codec, idx, offset, size, time, flags);
+    TRACY_ZONE_END_OR_ERROR_CODE_TEXT("ff_AMediaCodec_queueInputBuffer_fail", ret);
+    return ret;
 }
 
 static inline ssize_t ff_AMediaCodec_dequeueOutputBuffer(FFAMediaCodec* codec, FFAMediaCodecBufferInfo *info, int64_t timeoutUs)
@@ -290,57 +313,90 @@ static inline FFAMediaFormat* ff_AMediaCodec_getOutputFormat(FFAMediaCodec* code
 
 static inline int ff_AMediaCodec_releaseOutputBuffer(FFAMediaCodec* codec, size_t idx, int render)
 {
-    return codec->releaseOutputBuffer(codec, idx, render);
+    TRACY_ZONE_START("ff_AMediaCodec_releaseOutputBuffer");
+    int ret = codec->releaseOutputBuffer(codec, idx, render);
+    TRACY_ZONE_END_OR_ERROR_CODE_TEXT("ff_AMediaCodec_releaseOutputBuffer_fail", ret);
+    return ret;
 }
 
 static inline int ff_AMediaCodec_releaseOutputBufferAtTime(FFAMediaCodec *codec, size_t idx, int64_t timestampNs)
 {
-    return codec->releaseOutputBufferAtTime(codec, idx, timestampNs);
+    TRACY_ZONE_START("ff_AMediaCodec_releaseOutputBufferAtTime");
+    int ret = codec->releaseOutputBufferAtTime(codec, idx, timestampNs);
+    TRACY_ZONE_END_OR_ERROR_CODE_TEXT("ff_AMediaCodec_releaseOutputBufferAtTime_fail", ret);
+    return ret;
 }
 
 static inline int ff_AMediaCodec_infoTryAgainLater(FFAMediaCodec *codec, ssize_t idx)
 {
-    return codec->infoTryAgainLater(codec, idx);
+    TRACY_ZONE_START("ff_AMediaCodec_infoTryAgainLater");
+    int ret = codec->infoTryAgainLater(codec, idx);
+    TRACY_ZONE_END_OR_ERROR_CODE_TEXT("ff_AMediaCodec_infoTryAgainLater_fail", ret);
+    return ret;
 }
 
 static inline int ff_AMediaCodec_infoOutputBuffersChanged(FFAMediaCodec *codec, ssize_t idx)
 {
-    return codec->infoOutputBuffersChanged(codec, idx);
+    TRACY_ZONE_START("ff_AMediaCodec_infoOutputBuffersChanged");
+    int ret = codec->infoOutputBuffersChanged(codec, idx);
+    TRACY_ZONE_END_OR_ERROR_CODE_TEXT("ff_AMediaCodec_infoOutputBuffersChanged_fail", ret);
+    return ret;
 }
 
 static inline int ff_AMediaCodec_infoOutputFormatChanged(FFAMediaCodec *codec, ssize_t idx)
 {
-    return codec->infoOutputFormatChanged(codec, idx);
+    TRACY_ZONE_START("ff_AMediaCodec_infoOutputFormatChanged");
+    int ret = codec->infoOutputFormatChanged(codec, idx);
+    TRACY_ZONE_END_OR_ERROR_CODE_TEXT("ff_AMediaCodec_infoOutputFormatChanged_fail", ret);
+    return ret;
 }
 
 static inline int ff_AMediaCodec_getBufferFlagCodecConfig(FFAMediaCodec *codec)
 {
-    return codec->getBufferFlagCodecConfig(codec);
+    TRACY_ZONE_START("ff_AMediaCodec_getBufferFlagCodecConfig");
+    int ret = codec->getBufferFlagCodecConfig(codec);
+    TRACY_ZONE_END_OR_ERROR_CODE_TEXT("ff_AMediaCodec_getBufferFlagCodecConfig_fail", ret);
+    return ret;
 }
 
 static inline int ff_AMediaCodec_getBufferFlagEndOfStream(FFAMediaCodec *codec)
 {
-    return codec->getBufferFlagEndOfStream(codec);
+    TRACY_ZONE_START("ff_AMediaCodec_getBufferFlagEndOfStream");
+    int ret = codec->getBufferFlagEndOfStream(codec);
+    TRACY_ZONE_END_OR_ERROR_CODE_TEXT("ff_AMediaCodec_getBufferFlagEndOfStream_fail", ret); 
+    return ret;
 }
 
 static inline int ff_AMediaCodec_getBufferFlagKeyFrame(FFAMediaCodec *codec)
 {
-    return codec->getBufferFlagKeyFrame(codec);
+    TRACY_ZONE_START("ff_AMediaCodec_getBufferFlagKeyFrame");
+    int ret = codec->getBufferFlagKeyFrame(codec);
+    TRACY_ZONE_END_OR_ERROR_CODE_TEXT("ff_AMediaCodec_getBufferFlagKeyFrame_fail", ret);
+    return ret;
 }
 
 static inline int ff_AMediaCodec_getConfigureFlagEncode(FFAMediaCodec *codec)
 {
-    return codec->getConfigureFlagEncode(codec);
+    TRACY_ZONE_START("ff_AMediaCodec_getConfigureFlagEncode");
+    int ret = codec->getConfigureFlagEncode(codec);
+    TRACY_ZONE_END_OR_ERROR_CODE_TEXT("ff_AMediaCodec_getConfigureFlagEncode_fail", ret);
+    return ret;
 }
 
 static inline int ff_AMediaCodec_cleanOutputBuffers(FFAMediaCodec *codec)
 {
-    return codec->cleanOutputBuffers(codec);
+    TRACY_ZONE_START("ff_AMediaCodec_cleanOutputBuffers");
+    int ret = codec->cleanOutputBuffers(codec);
+    TRACY_ZONE_END_OR_ERROR_CODE_TEXT("ff_AMediaCodec_cleanOutputBuffers_fail", ret);
+    return ret;
 }
 
 static inline int ff_AMediaCodec_signalEndOfInputStream(FFAMediaCodec *codec)
 {
-    return codec->signalEndOfInputStream(codec);
+    TRACY_ZONE_START("ff_AMediaCodec_signalEndOfInputStream");
+    int ret = codec->signalEndOfInputStream(codec);
+    TRACY_ZONE_END_OR_ERROR_CODE_TEXT("ff_AMediaCodec_signalEndOfInputStream_fail", ret);
+    return ret;
 }
 
 int ff_Build_SDK_INT(AVCodecContext *avctx);

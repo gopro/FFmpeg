@@ -45,6 +45,8 @@
 #include "mediacodec_wrapper.h"
 #include "mediacodecdec_common.h"
 
+#include "../tracy_c.h"
+
 typedef struct MediaCodecH264DecContext {
 
     AVClass *avclass;
@@ -61,6 +63,7 @@ typedef struct MediaCodecH264DecContext {
 
 static av_cold int mediacodec_decode_close(AVCodecContext *avctx)
 {
+    TRACY_ZONE_START("mediacodec_decode_close");
     MediaCodecH264DecContext *s = avctx->priv_data;
 
     ff_mediacodec_dec_close(avctx, s->ctx);
@@ -68,6 +71,7 @@ static av_cold int mediacodec_decode_close(AVCodecContext *avctx)
 
     av_packet_unref(&s->buffered_pkt);
 
+    TRACY_ZONE_END
     return 0;
 }
 
@@ -326,6 +330,7 @@ static int common_set_extradata(AVCodecContext *avctx, FFAMediaFormat *format)
 
 static av_cold int mediacodec_decode_init(AVCodecContext *avctx)
 {
+    TRACY_ZONE_START("mediacodec_decode_init");
     int ret;
     int sdk_int;
 
@@ -506,11 +511,13 @@ done:
         mediacodec_decode_close(avctx);
     }
 
+    TRACY_ZONE_END_OR_ERROR_CODE_TEXT("mediacodec_decode_init", ret);
     return ret;
 }
 
 static int mediacodec_receive_frame(AVCodecContext *avctx, AVFrame *frame)
 {
+    TRACY_ZONE_START("mediacodec_receive_frame");
     MediaCodecH264DecContext *s = avctx->priv_data;
     int ret;
     ssize_t index;
@@ -519,6 +526,7 @@ static int mediacodec_receive_frame(AVCodecContext *avctx, AVFrame *frame)
        all retained frames. */
     if (s->delay_flush && ff_mediacodec_dec_is_flushing(avctx, s->ctx)) {
         if (!ff_mediacodec_dec_flush(avctx, s->ctx)) {
+            TRACY_ZONE_END_ERROR("mediacodec_receive_frame_again");
             return AVERROR(EAGAIN);
         }
     }
@@ -526,16 +534,24 @@ static int mediacodec_receive_frame(AVCodecContext *avctx, AVFrame *frame)
     /* poll for new frame */
     ret = ff_mediacodec_dec_receive(avctx, s->ctx, frame, false);
     if (ret != AVERROR(EAGAIN))
+    {
+        TRACY_ZONE_END_ERROR_CODE_TEXT("mediacodec_receive_frame_poll_error", ret);
         return ret;
+    }
 
     /* feed decoder */
     while (1) {
+        //TRACY_ZONE_START_CTX(tracy_ctx_loop, "mediacodec_receive_frame_feed");
         if (s->ctx->current_input_buffer < 0 && !s->ctx->draining) {
             /* poll for input space */
+            TRACY_ZONE_START_CTX(tracy_ctx_dequeueInputBuffer, "dequeueInputBuffer");
             index = ff_AMediaCodec_dequeueInputBuffer(s->ctx->codec, 0);
+            TRACY_ZONE_END_CTX(tracy_ctx_dequeueInputBuffer);
             if (index < 0) {
+                TRACY_ZONE_START_CTX(tracy_ctx_dec_receive, "ff_mediacodec_dec_receive");
                 /* no space, block for an output frame to appear */
                 ret = ff_mediacodec_dec_receive(avctx, s->ctx, frame, true);
+                TRACY_ZONE_END_CTX(tracy_ctx_dec_receive);
                 /* Try again if both input port and output port return EAGAIN.
                  * If no data is consumed and no frame in output, it can make
                  * both avcodec_send_packet() and avcodec_receive_frame()
@@ -544,6 +560,8 @@ static int mediacodec_receive_frame(AVCodecContext *avctx, AVFrame *frame)
                 /*if (ff_AMediaCodec_infoTryAgainLater(s->ctx->codec, index) &&
                     ret == AVERROR(EAGAIN))
                     continue;*/
+                //TRACY_ZONE_END_CTX(tracy_ctx_loop);
+                TRACY_ZONE_END_ERROR_CODE_TEXT("mediacodec_receive_frame_no_input_buffer", ret);
                 return ret;
             }
             s->ctx->current_input_buffer = index;
@@ -552,6 +570,7 @@ static int mediacodec_receive_frame(AVCodecContext *avctx, AVFrame *frame)
         /* try to flush any buffered packet data */
         if (s->buffered_pkt.size > 0) {
             ret = ff_mediacodec_dec_send(avctx, s->ctx, &s->buffered_pkt, false);
+
             if (ret >= 0) {
                 s->buffered_pkt.size -= ret;
                 s->buffered_pkt.data += ret;
@@ -563,6 +582,8 @@ static int mediacodec_receive_frame(AVCodecContext *avctx, AVFrame *frame)
                            ret, s->buffered_pkt.size+ret);
                 }
             } else if (ret < 0 && ret != AVERROR(EAGAIN)) {
+                //TRACY_ZONE_END_CTX(tracy_ctx_loop);
+                TRACY_ZONE_END_ERROR_CODE_TEXT("ff_mediacodec_dec_send_send_error", ret);
                 return ret;
             }
 
@@ -575,20 +596,41 @@ static int mediacodec_receive_frame(AVCodecContext *avctx, AVFrame *frame)
         }
 
         /* fetch new packet or eof */
+        TRACY_ZONE_START_CTX(tracy_ctx_get_packet, "ff_decode_get_packet");
         ret = ff_decode_get_packet(avctx, &s->buffered_pkt);
+        TRACY_ZONE_END_CTX(tracy_ctx_get_packet);
+
         if (ret == AVERROR_EOF) {
             AVPacket null_pkt = { 0 };
             ret = ff_mediacodec_dec_send(avctx, s->ctx, &null_pkt, true);
             if (ret < 0)
+            {
+                //TRACY_ZONE_END_CTX(tracy_ctx_loop);
+                TRACY_ZONE_END_ERROR_CODE_TEXT("ff_mediacodec_dec_send_eof_error", ret);
                 return ret;
-            return ff_mediacodec_dec_receive(avctx, s->ctx, frame, true);
+            }
+            TRACY_ZONE_START_CTX(tracy_ctx_dec_receive, "ff_mediacodec_dec_receive");
+            ret = ff_mediacodec_dec_receive(avctx, s->ctx, frame, true);
+            TRACY_ZONE_END_CTX(tracy_ctx_dec_receive);
+            //TRACY_ZONE_END_CTX(tracy_ctx_loop);
+            TRACY_ZONE_END_ERROR_CODE_TEXT("ff_mediacodec_dec_receive_oef_error", ret);
+            return ret;
         } else if (ret == AVERROR(EAGAIN) && s->ctx->current_input_buffer < 0) {
-            return ff_mediacodec_dec_receive(avctx, s->ctx, frame, true);
+            TRACY_ZONE_START_CTX(tracy_ctx_dec_receive, "ff_mediacodec_dec_receive-current_input_buffer<0");
+            ret = ff_mediacodec_dec_receive(avctx, s->ctx, frame, true);
+            TRACY_ZONE_END_CTX(tracy_ctx_dec_receive);
+           // TRACY_ZONE_END_CTX(tracy_ctx_loop);
+            TRACY_ZONE_END_ERROR_CODE_TEXT("ff_mediacodec_dec_receive", ret);
+            return ret;
         } else if (ret < 0) {
+
+            //TRACY_ZONE_END_CTX(tracy_ctx_loop);
+            TRACY_ZONE_END_ERROR_CODE_TEXT("ff_decode_get_packet_error", ret);
             return ret;
         }
+        //TRACY_ZONE_END_CTX(tracy_ctx_loop);
     }
-
+    TRACY_ZONE_END;
     return AVERROR(EAGAIN);
 }
 
