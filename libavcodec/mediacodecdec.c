@@ -63,6 +63,7 @@ typedef struct MediaCodecH264DecContext {
 
 static av_cold int mediacodec_decode_close(AVCodecContext *avctx)
 {
+    TRACY_ZONE_START("mediacodec_decode_close");
     MediaCodecH264DecContext *s = avctx->priv_data;
 
     ff_mediacodec_dec_close(avctx, s->ctx);
@@ -70,6 +71,7 @@ static av_cold int mediacodec_decode_close(AVCodecContext *avctx)
 
     av_packet_unref(&s->buffered_pkt);
 
+    TRACY_ZONE_END
     return 0;
 }
 
@@ -328,6 +330,7 @@ static int common_set_extradata(AVCodecContext *avctx, FFAMediaFormat *format)
 
 static av_cold int mediacodec_decode_init(AVCodecContext *avctx)
 {
+    TRACY_ZONE_START("ff_mediacodec_dec_init");
     int ret;
     int sdk_int;
 
@@ -508,6 +511,7 @@ done:
         mediacodec_decode_close(avctx);
     }
 
+    TRACY_ZONE_END;
     return ret;
 }
 
