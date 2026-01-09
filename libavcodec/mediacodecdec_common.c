@@ -322,7 +322,10 @@ static void mediacodec_buffer_release(void *opaque, uint8_t *data)
         av_log(ctx->avctx, AV_LOG_DEBUG,
                "Releasing output buffer %zd (%p) ts=%"PRId64" on free() [%d pending]\n",
                buffer->index, buffer, buffer->pts, atomic_load(&ctx->hw_buffer_count));
-        ff_AMediaCodec_releaseOutputBuffer(ctx->codec, buffer->index, 0);
+        // Only release if codec is still valid.
+        if (ctx->codec) {
+            ff_AMediaCodec_releaseOutputBuffer(ctx->codec, buffer->index, 0);
+        }
     }
 
     ff_mediacodec_dec_unref(ctx);
@@ -404,12 +407,15 @@ static int mediacodec_wrap_hw_buffer(AVCodecContext *avctx,
     return 0;
 fail:
     av_freep(&buffer);
-    status = ff_AMediaCodec_releaseOutputBuffer(s->codec, index, 0);
-    if (status < 0) {
-        av_log(avctx, AV_LOG_ERROR, "Failed to release output buffer\n");
-        ret = AVERROR_EXTERNAL;
+    // Only release if codec is still valid
+    if (s->codec)
+    {
+        status = ff_AMediaCodec_releaseOutputBuffer(s->codec, index, 0);
+        if (status < 0) {
+            av_log(avctx, AV_LOG_ERROR, "Failed to release output buffer\n");
+            // ret = AVERROR_EXTERNAL; not sure we need to return an error here, becasue it do not matter us it didn't release the buffer
+        }
     }
-
     return ret;
 }
 
@@ -471,10 +477,13 @@ static int mediacodec_wrap_sw_audio_buffer(AVCodecContext *avctx,
 
     ret = 0;
 done:
-    status = ff_AMediaCodec_releaseOutputBuffer(s->codec, index, 0);
-    if (status < 0) {
-        av_log(avctx, AV_LOG_ERROR, "Failed to release output buffer\n");
-        ret = AVERROR_EXTERNAL;
+    // Only release if codec is still valid
+    if (s->codec) {
+        status = ff_AMediaCodec_releaseOutputBuffer(s->codec, index, 0);
+        if (status < 0) {
+            av_log(avctx, AV_LOG_ERROR, "Failed to release output buffer\n");
+            // ret = AVERROR_EXTERNAL; not sure we need to return an error here, becasue it do not matter us it didn't release the buffer
+        }
     }
 
     return ret;
@@ -558,12 +567,14 @@ static int mediacodec_wrap_sw_video_buffer(AVCodecContext *avctx,
 
     ret = 0;
 done:
-    status = ff_AMediaCodec_releaseOutputBuffer(s->codec, index, 0);
-    if (status < 0) {
-        av_log(avctx, AV_LOG_ERROR, "Failed to release output buffer\n");
-        ret = AVERROR_EXTERNAL;
+    // Only release if codec is still valid
+    if (s->codec) {
+        status = ff_AMediaCodec_releaseOutputBuffer(s->codec, index, 0);
+        if (status < 0) {
+            av_log(avctx, AV_LOG_ERROR, "Failed to release output buffer\n");
+            // ret = AVERROR_EXTERNAL; not sure we need to return an error here, becasue it do not matter us it didn't release the buffer
+        }
     }
-
     return ret;
 }
 
