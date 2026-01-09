@@ -2,8 +2,8 @@
 
 #include <tracy/tracy/TracyC.h>
 
-#define TRACY_DISP_ERROR_TEXT_INV(d, c, b, a) -(int)((a) | ((b) << 8) | ((c) << 16) | ((unsigned)(d) << 24))
-#define TRACY_DISP_ERROR_TEXT(ret) TRACY_DISP_ERROR_TEXT_INV(ret&0xFF, (ret>>8)&0xFF, (ret>>16)&0xFF, (ret>>24)&0xFF)
+#define TRACY_DISP_ERROR_TEXT_INV(d, c, b, a) ((a) | ((b) << 8) | ((c) << 16) | ((unsigned)(d) << 24))
+#define TRACY_DISP_ERROR_TEXT(ret) TRACY_DISP_ERROR_TEXT_INV(-ret&0xFF, (-ret>>8)&0xFF, (-ret>>16)&0xFF, (-ret>>24)&0xFF)
 
 #define TRACY_ZONE_START_CTX(tracy_ctx, name) TracyCZoneN(tracy_ctx, name, 1);
 #define TRACY_ZONE_END_CTX(tracy_ctx) {TracyCZoneEnd(tracy_ctx);}
