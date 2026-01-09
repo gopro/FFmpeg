@@ -433,7 +433,7 @@ fail:
     } else {
         av_log(avctx, AV_LOG_DEBUG, "No codec instance available for buffer release\n");
     }
-    TRACY_ZONE_END_ERROR("mediacodec_wrap_hw_buffer_fail"); 
+    TRACY_ZONE_END_ERROR_CODE("mediacodec_wrap_hw_buffer_fail", ret);
     return ret;
 }
 
@@ -599,7 +599,7 @@ done:
 
     if (ret != 0)
     {
-        TRACY_ZONE_END_ERROR("mediacodec_wrap_sw_video_buffer_fail");
+        TRACY_ZONE_END_ERROR_CODE("mediacodec_wrap_sw_video_buffer_fail", ret);
     }
     else
     {
@@ -747,7 +747,7 @@ static int mediacodec_dec_parse_video_format(AVCodecContext *avctx, MediaCodecDe
     return ret;
 fail:
     av_freep(&format);
-    TRACY_ZONE_END_ERROR("mediacodec_dec_parse_video_format_fail");
+    TRACY_ZONE_END_ERROR_CODE("mediacodec_dec_parse_video_format_fail", ret);
     return ret;
 }
 
@@ -798,7 +798,7 @@ static int mediacodec_dec_parse_audio_format(AVCodecContext *avctx, MediaCodecDe
 
 fail:
     av_freep(&format);
-    TRACY_ZONE_END_ERROR("mediacodec_dec_parse_audio_format_fail");
+    TRACY_ZONE_END_ERROR_CODE("mediacodec_dec_parse_audio_format_fail", ret);
     return ret;
 }
 
@@ -899,7 +899,7 @@ fail:
     }
     else
     {
-        TRACY_ZONE_END_ERROR("mediacodec_dec_probe_fail");
+        TRACY_ZONE_END_ERROR_CODE("mediacodec_dec_probe_fail", ret);
     }
     return ret;
 }
@@ -1092,7 +1092,7 @@ int ff_mediacodec_dec_init(AVCodecContext *avctx, MediaCodecDecContext *s,
 fail:
     av_log(avctx, AV_LOG_ERROR, "MediaCodec %p failed to start\n", s->codec);
     ff_mediacodec_dec_close(avctx, s);
-    TRACY_ZONE_END_ERROR("ff_mediacodec_dec_init_fail");
+    TRACY_ZONE_END_ERROR_CODE("ff_mediacodec_dec_init_fail", ret);
     return ret;
 }
 
@@ -1198,7 +1198,7 @@ int ff_mediacodec_dec_send(AVCodecContext *avctx, MediaCodecDecContext *s,
         ret = mc_add_packet_entry(s, pts, pkt->duration);
         if (ret < 0)
         {
-            TRACY_ZONE_END_ERROR("mc_add_packet_entry_fail");
+            TRACY_ZONE_END_ERROR_CODE("mc_add_packet_entry_fail", ret);
             return ret;
         }
 
@@ -1270,7 +1270,7 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
             if (s->surface) {
                 if ((ret = mediacodec_wrap_hw_buffer(avctx, s, index, &info, frame)) < 0) {
                     av_log(avctx, AV_LOG_ERROR, "Failed to wrap MediaCodec buffer\n");
-                    TRACY_ZONE_END_ERROR("wrap_hw_buffer_fail");
+                    TRACY_ZONE_END_ERROR_CODE("wrap_hw_buffer_fail", ret);
                     return ret;
                 }
             } else {
@@ -1283,7 +1283,7 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
 
                 if ((ret = mediacodec_wrap_sw_buffer(avctx, s, data, size, index, &info, frame)) < 0) {
                     av_log(avctx, AV_LOG_ERROR, "Failed to wrap MediaCodec buffer\n");
-                    TRACY_ZONE_END_ERROR("wrap_sw_buffer_fail");
+                    TRACY_ZONE_END_ERROR_CODE("wrap_sw_buffer_fail", ret);
                     return ret;
                 }
             }
@@ -1357,7 +1357,6 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
 
     } else if (ff_AMediaCodec_infoTryAgainLater(codec, index)) {
         av_log(avctx, AV_LOG_TRACE, "Dequeue timeout - no output available yet\n");
-        TRACY()
 
         /* During drain, a timeout is expected as codec may be slow */
         if (s->draining) {
@@ -1447,15 +1446,21 @@ int ff_mediacodec_dec_flush(AVCodecContext *avctx, MediaCodecDecContext *s)
         /* No frames (holding a reference to the codec) are retained by the
          * user, thus we can flush the codec and returns accordingly */
         if ((ret = mediacodec_dec_flush_codec(avctx, s)) < 0) {
-            TRACY_ZONE_END_ERROR("mediacodec_dec_flush_codec_fail");
+            TRACY_ZONE_END_ERROR_CODE("mediacodec_dec_flush_codec_fail", ret);
             return ret;
         }
         if(!s->surface)
+        {
             TRACY_ZONE_END_ERROR("flush_performed_no_surface_or_no_ref");
+        }
         else if(!s->delay_flush)
+        {
             TRACY_ZONE_END_ERROR("flush_performed_no_delay_flush_no_ref");
+        }
         else
+        {
             TRACY_ZONE_END_ERROR("refcount_is_1_flush_performed");
+        }
         return 1;
     }
 
