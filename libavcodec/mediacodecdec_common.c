@@ -324,7 +324,6 @@ static void mediacodec_buffer_release(void *opaque, uint8_t *data)
                buffer->index, buffer, buffer->pts, atomic_load(&ctx->hw_buffer_count));
         // Only release if codec is still valid.
         if (ctx->codec) {
-            ctx->buffer = NULL;
             ff_AMediaCodec_releaseOutputBuffer(ctx->codec, buffer->index, 0);
         }
     }
@@ -371,15 +370,19 @@ static int mediacodec_wrap_hw_buffer(AVCodecContext *avctx,
         entry->duration = 0;
     }
 
-    s->buffer = av_mallocz(sizeof(AVMediaCodecBuffer));
-    buffer = s->buffer;
+    buffer = av_mallocz(sizeof(AVMediaCodecBuffer));
     if (!buffer) {
         ret = AVERROR(ENOMEM);
         goto fail;
     }
 
     atomic_init(&buffer->released, 0);
+    buffer->ctx = s;
+    buffer->serial = atomic_load(&s->serial);
+    buffer->index = index;
+    buffer->pts = info->presentationTimeUs;
 
+    /* Create the AVBuffer wrapper BEFORE incrementing hw_buffer_count */
     frame->buf[0] = av_buffer_create(NULL,
                                      0,
                                      mediacodec_buffer_release,
@@ -389,19 +392,14 @@ static int mediacodec_wrap_hw_buffer(AVCodecContext *avctx,
     if (!frame->buf[0]) {
         ret = AVERROR(ENOMEM);
         goto fail;
-
     }
 
-    buffer->ctx = s;
-    buffer->serial = atomic_load(&s->serial);
+    /* Increment refcount and buffer count AFTER buffer is fully initialized */
     ff_mediacodec_dec_ref(s);
-
-    buffer->index = index;
-    buffer->pts = info->presentationTimeUs;
+    atomic_fetch_add(&s->hw_buffer_count, 1);
 
     frame->data[3] = (uint8_t *)buffer;
 
-    atomic_fetch_add(&s->hw_buffer_count, 1);
     av_log(avctx, AV_LOG_DEBUG,
             "Wrapping output buffer %zd (%p) ts=%"PRId64" [%d pending]\n",
             buffer->index, buffer, buffer->pts, atomic_load(&s->hw_buffer_count));
@@ -803,16 +801,6 @@ static int mediacodec_dec_flush_codec(AVCodecContext *avctx, MediaCodecDecContex
 
     if (!s->started) {
         av_log(avctx, AV_LOG_DEBUG, "MediaCodec not started, skipping flush\n");
-        return 0;
-    }
-
-    if(s->buffer == NULL) {
-        av_log(avctx, AV_LOG_ERROR, "Buffer info missing\n");
-        return 0;
-    }
-    int released = atomic_load(&((AVMediaCodecBuffer*)s->buffer)->released);
-    if(released) {
-        av_log(avctx, AV_LOG_DEBUG, "Do not flush due to released buffers\n");
         return 0;
     }
 

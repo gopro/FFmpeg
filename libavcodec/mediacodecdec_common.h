@@ -42,7 +42,6 @@ typedef struct MediaCodecPacketEntry {
 typedef struct MediaCodecDecContext {
 
     AVCodecContext *avctx;
-    void* buffer;
     atomic_int refcount;
     atomic_int hw_buffer_count;
 
