@@ -1244,23 +1244,25 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
 
     } else if (ff_AMediaCodec_infoTryAgainLater(codec, index)) {
         av_log(avctx, AV_LOG_TRACE, "Dequeue timeout - no output available yet\n");
-        
-        /* Track consecutive timeouts to detect codec hangs */
-        s->dequeue_timeout_count++;
-        
-        /* If we timeout too many times in a row, the codec is likely hung */
-        if (s->dequeue_timeout_count > 10) {
-            av_log(avctx, AV_LOG_WARNING, 
-                   "Codec stuck: %d consecutive dequeue timeouts, forcing restart\n",
-                   s->dequeue_timeout_count);
-            s->started = 0;
-            s->dequeue_timeout_count = 0;
-            return AVERROR_EXTERNAL;
-        }
-        
         /* During drain, a timeout is expected as codec may be slow */
         if (s->draining) {
             av_log(avctx, AV_LOG_TRACE, "Timeout while draining - waiting for frames\n");
+        }
+        else
+        {
+            /* Track consecutive timeouts to detect codec hangs */
+            s->dequeue_timeout_count++;
+            
+            /* If we timeout too many times in a row, the codec is likely hung */
+            if (s->dequeue_timeout_count > 5000)
+            {
+                av_log(avctx, AV_LOG_WARNING, 
+                    "Codec stuck: %d consecutive dequeue timeouts, forcing restart\n",
+                    s->dequeue_timeout_count);
+                s->started = 0;
+                s->dequeue_timeout_count = 0;
+                return AVERROR_EXTERNAL;
+            }
         }
         return AVERROR(EAGAIN);
 
@@ -1291,9 +1293,9 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
 */
 int ff_mediacodec_dec_flush(AVCodecContext *avctx, MediaCodecDecContext *s)
 {
-    if(!s->started)
+    if(!s->started || !s->codec)
     {
-        av_log(avctx, AV_LOG_ERROR, "Nothing to flush yet, not started\n");
+        av_log(avctx, AV_LOG_DEBUG, "Codec not ready for flush (started=%d, codec=%p)\n", s->started, s->codec);
         return 0;
     }
     if (!s->surface || !s->delay_flush || atomic_load(&s->refcount) == 1) {
