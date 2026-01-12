@@ -80,8 +80,7 @@ typedef struct MediaCodecDecContext {
     MediaCodecPacketEntry *pkt_entries;
     int nb_pkt_entries;
     
-    /* Track consecutive dequeue timeouts to detect codec hangs */
-    int dequeue_timeout_count;
+    /* Timer for detecting codec hangs - reset when output is produced or codec events occur */
     int64_t last_dequeue_time;
 
 } MediaCodecDecContext;

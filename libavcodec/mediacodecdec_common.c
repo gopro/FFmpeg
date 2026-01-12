@@ -787,6 +787,7 @@ static int mediacodec_dec_flush_codec(AVCodecContext *avctx, MediaCodecDecContex
     atomic_fetch_add(&s->serial, 1);
     atomic_init(&s->hw_buffer_count, 0);
     s->current_input_buffer = -1;
+    s->last_dequeue_time = 0;
 
     av_freep(&s->pkt_entries);
     s->nb_pkt_entries = 0;
@@ -981,6 +982,7 @@ int ff_mediacodec_dec_init(AVCodecContext *avctx, MediaCodecDecContext *s,
     atomic_init(&s->hw_buffer_count, 0);
     atomic_init(&s->serial, 1);
     s->current_input_buffer = -1;
+    s->last_dequeue_time = 0;
 
     if (avctx->codec_type == AVMEDIA_TYPE_AUDIO)
         ret = mediacodec_dec_get_audio_codec(avctx, s, mime, format);
@@ -1173,8 +1175,8 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
 
     index = ff_AMediaCodec_dequeueOutputBuffer(codec, &info, output_dequeue_timeout_us);
     if (index >= 0) {
-        /* Reset timeout counter on successful dequeue */
-        s->dequeue_timeout_count = 0;
+        /* Reset timeout timer on successful dequeue */
+        s->last_dequeue_time = av_gettime();
         
         av_log(avctx, AV_LOG_TRACE, "Got output buffer %zd"
                 " offset=%" PRIi32 " size=%" PRIi32 " ts=%" PRIi64
@@ -1204,6 +1206,9 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
                 }
             }
 
+            /* BUG FIX #2: RESET timer when actual data is received (non-zero size)
+             * This prevents forced restart during normal playback */
+            s->last_dequeue_time = av_gettime();
             s->output_buffer_count++;
             return 0;
         } else {
@@ -1219,8 +1224,8 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
         }
 
     } else if (ff_AMediaCodec_infoOutputFormatChanged(codec, index)) {
-        /* Reset timeout counter on format change event */
-        s->dequeue_timeout_count = 0;
+        /* Reset timeout timer on format change event */
+        s->last_dequeue_time = av_gettime();
         
 
         av_log(avctx, AV_LOG_TRACE, "ff_AMediaCodec_infoOutputFormatChanged\n");
@@ -1254,8 +1259,8 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
         return AVERROR(EAGAIN);
 
     } else if (ff_AMediaCodec_infoOutputBuffersChanged(codec, index)) {
-        /* Reset timeout counter on buffer change event */
-        s->dequeue_timeout_count = 0;
+        /* Reset timeout timer on buffer change event */
+        s->last_dequeue_time = av_gettime();
         
         ff_AMediaCodec_cleanOutputBuffers(codec);
         av_log(avctx, AV_LOG_TRACE, "Output buffers changed\n");
@@ -1265,29 +1270,32 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
         av_log(avctx, AV_LOG_TRACE, "Dequeue timeout - no output available yet\n");
         /* During drain, a timeout is expected as codec may be slow */
         if (s->draining) {
+            s->last_dequeue_time = av_gettime();
             av_log(avctx, AV_LOG_TRACE, "Timeout while draining - waiting for frames\n");
         }
         else
         {
-            /* Track consecutive timeouts to detect codec hangs */
-            s->dequeue_timeout_count++;
-            
-            /* If we timeout too many times in a row, the codec is likely hung */
-            if (s->dequeue_timeout_count > 5000)
-            {
-                av_log(avctx, AV_LOG_WARNING, 
-                    "Codec stuck: %d consecutive dequeue timeouts, forcing restart\n",
-                    s->dequeue_timeout_count);
-                s->dequeue_timeout_count = 0;
-                return AVERROR_EXTERNAL;
+            /* Initialize timer on first timeout */
+            if (s->last_dequeue_time == 0) {
+                s->last_dequeue_time = av_gettime();
+                av_log(avctx, AV_LOG_DEBUG, "Starting dequeue timeout timer\n");
+            } else {
+                int64_t elapsed_us = av_gettime() - s->last_dequeue_time;
+                int64_t timeout_us = 10 * 1000000;  /* 10 seconds in microseconds */
+                
+                if (elapsed_us > timeout_us) {
+                    av_log(avctx, AV_LOG_WARNING, 
+                        "Codec stuck: No output buffer for %.2f seconds, forcing restart\n",
+                        elapsed_us / 1000000.0);
+                    s->last_dequeue_time = 0;
+                    return AVERROR_EXTERNAL;
+                }
             }
         }
         return AVERROR(EAGAIN);
 
     } else {
         av_log(avctx, AV_LOG_ERROR, "Failed to dequeue output buffer (status=%zd)\n", index);
-        /* Mark codec as no longer in started state after hard error */
-
         /* Log specific error indicating buffer allocation or codec failure */
         av_log(avctx, AV_LOG_WARNING, 
                "Codec error on dequeue - likely buffer allocation failure or codec crash, restarting codec...\n");
