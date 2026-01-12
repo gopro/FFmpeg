@@ -23,6 +23,7 @@
 #include <jni.h>
 #include <pthread.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "libavutil/bprint.h"
 #include "libavutil/error.h"
@@ -146,14 +147,18 @@ int ff_jni_exception_get_summary(JNIEnv *env, jthrowable exception, char **error
 
     AVBPrint bp;
 
+    int error_code = 0;
     char *name = NULL;
     char *message = NULL;
+    char *diagnostic = NULL;
 
     jclass class_class = NULL;
     jmethodID get_name_id = NULL;
 
     jclass exception_class = NULL;
     jmethodID get_message_id = NULL;
+    jmethodID get_diagnostic_id = NULL;
+    jmethodID get_error_code_id = NULL;
 
     jstring string = NULL;
 
@@ -219,12 +224,51 @@ int ff_jni_exception_get_summary(JNIEnv *env, jthrowable exception, char **error
         string = NULL;
     }
 
+    get_diagnostic_id = (*env)->GetMethodID(env, exception_class, "getDiagnosticInfo", "()Ljava/lang/String;");
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+        get_diagnostic_id = NULL;
+    }
+
+    if (get_diagnostic_id) {
+        string = (*env)->CallObjectMethod(env, exception, get_diagnostic_id);
+        if ((*env)->ExceptionCheck(env)) {
+            (*env)->ExceptionClear(env);
+            av_log(log_ctx, AV_LOG_ERROR, "Throwable.getDiagnosticInfo() threw an exception\n");
+            ret = AVERROR_EXTERNAL;
+            goto done;
+        }
+        if (string) {
+            diagnostic = ff_jni_jstring_to_utf_chars(env, string, log_ctx);
+            (*env)->DeleteLocalRef(env, string);
+            string = NULL;
+        }
+    }
+
+    get_error_code_id = (*env)->GetMethodID(env, exception_class, "getErrorCode", "()I");
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+        get_error_code_id = NULL;
+    }
+    if (get_error_code_id) {
+        error_code = (*env)->CallIntMethod(env, exception, get_error_code_id);
+        if ((*env)->ExceptionCheck(env)) {
+            (*env)->ExceptionClear(env);
+            av_log(log_ctx, AV_LOG_ERROR, "Throwable.getErrorCode() threw an exception\n");
+            ret = AVERROR_EXTERNAL;
+            goto done;
+        }
+    }
+    if (error_code || diagnostic) {
+        av_log(log_ctx, AV_LOG_WARNING, "MediaCodec error code=%d diagnostic=%s\n", error_code, diagnostic ? diagnostic : "");
+    }
+
     if (name && message) {
-        av_bprintf(&bp, "%s: %s", name, message);
+        av_bprintf(&bp, "name %s, message: %s", name, message);
     } else if (name && !message) {
-        av_bprintf(&bp, "%s occurred", name);
+        av_bprintf(&bp, "name %s occurred", name);
     } else if (!name && message) {
-        av_bprintf(&bp, "Exception: %s", message);
+        av_bprintf(&bp, "message: %s", message);
     } else {
         av_log(log_ctx, AV_LOG_WARNING, "Could not retrieve exception name and message\n");
         av_bprintf(&bp, "Exception occurred");
@@ -235,10 +279,14 @@ done:
 
     av_free(name);
     av_free(message);
+    av_free(diagnostic);
 
-    (*env)->DeleteLocalRef(env, class_class);
-    (*env)->DeleteLocalRef(env, exception_class);
-    (*env)->DeleteLocalRef(env, string);
+    if (class_class)
+        (*env)->DeleteLocalRef(env, class_class);
+    if (exception_class)
+        (*env)->DeleteLocalRef(env, exception_class);
+    if (string)
+        (*env)->DeleteLocalRef(env, string);
 
     return ret;
 }
@@ -261,6 +309,7 @@ int ff_jni_exception_check(JNIEnv *env, int log, void *log_ctx)
     }
 
     exception = (*env)->ExceptionOccurred(env);
+    // (*(env))->ExceptionDescribe((env));
     (*(env))->ExceptionClear((env));
 
     if ((ret = ff_jni_exception_get_summary(env, exception, &message, log_ctx)) < 0) {
@@ -269,8 +318,34 @@ int ff_jni_exception_check(JNIEnv *env, int log, void *log_ctx)
     }
 
     (*env)->DeleteLocalRef(env, exception);
-
+    
+    if (!message) {
+        av_log(log_ctx, AV_LOG_ERROR, "Failed to get exception summary\n");
+        return -1;
+    }
+    
     av_log(log_ctx, AV_LOG_ERROR, "%s\n", message);
+
+    /* Detect binder/codec death and return a specific error so callers
+     * can teardown and optionally reinitialize the codec. The Java
+     * exception is logged already by ff_jni_exception_get_summary.
+     */
+    if (strstr(message, "DeadObjectException") || strstr(message, "DeadSystemException")) {
+        av_log(log_ctx, AV_LOG_ERROR, "MediaCodec failed (ENODEV) due to codec/binder death\n");
+        av_free(message);
+        return -1;
+    }
+
+    /* Treat codec INTERNAL/UNKNOWN errors as an I/O/hardware failure
+     * so higher-level code can teardown and fallback to software.
+     * Example message logged by Android: "Codec reported err 0x80000000/UNKNOWN_ERROR"
+     */
+    if (strstr(message, "UNKNOWN_ERROR") || strstr(message, "0x80000000")) {
+        av_log(log_ctx, AV_LOG_ERROR, "MediaCodec failed (UNKNOWN_ERROR)\n");
+        av_free(message);
+        return -1;
+    }
+
     av_free(message);
 
     return -1;
