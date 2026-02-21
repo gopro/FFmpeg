@@ -25,6 +25,8 @@
 
 #include "libavcodec/avcodec.h"
 
+#define AVERROR_CODEC_CAP  FFERRTAG(0xF8,'C','A','P') // no capable encoder/decoder exists
+
 /**
  * This structure holds a reference to a android/view/Surface object that will
  * be used as output by the decoder.
