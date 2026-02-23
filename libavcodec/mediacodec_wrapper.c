@@ -736,6 +736,9 @@ static int get_codec_score(const char *name)
     if (strstr(name, "OMX.qcom.video.decoder.hevcswvdec"))
         return CODEC_RANK_SW + 3;
 
+    if (strstr(name, "c2.android."))
+        return CODEC_RANK_SW + 4;
+
     return CODEC_RANK_HW;
 }
 
