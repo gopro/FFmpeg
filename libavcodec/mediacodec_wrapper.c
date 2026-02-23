@@ -753,7 +753,7 @@ static int codec_compare(const void *a, const void *b)
 
 int ff_AMediaCodecList_getCodecNamesByType(int *nb_names, char ***names, const char *mime, int profile, int encoder, int sw_ok, void *log_ctx)
 {
-    int ret;
+    int ret = 0;
     int i;
     int codec_count;
     char *name = NULL;
@@ -781,7 +781,7 @@ int ff_AMediaCodecList_getCodecNamesByType(int *nb_names, char ***names, const c
 
     for(i = 0; i < codec_count; i++) {
         int is_encoder;
-        int is_supported = 0;
+        int is_supported = 1;
 
         info = (*env)->CallStaticObjectMethod(env, jfields.mediacodec_list_class, jfields.get_codec_info_at_id, i);
         if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
@@ -793,48 +793,47 @@ int ff_AMediaCodecList_getCodecNamesByType(int *nb_names, char ***names, const c
             goto done;
         }
 
-        if (is_encoder != encoder) {
-            goto done_with_info;
-        }
+        if (is_encoder == encoder) {
 
-        if (!sw_ok && jfields.is_software_only_id) {
-            int is_software_only = (*env)->CallBooleanMethod(env, info, jfields.is_software_only_id);
-            if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
-                goto done;
+            if (!sw_ok && jfields.is_software_only_id) {
+                int is_software_only = (*env)->CallBooleanMethod(env, info, jfields.is_software_only_id);
+                if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
+                    goto done;
+                }
+
+                if (is_software_only) {
+                    is_supported=0;
+                }
             }
 
-            if (is_software_only) {
-                goto done_with_info;
+            if(is_supported)
+            {
+                name = get_codec_name(env, &jfields, info, log_ctx);
+
+                if (!name) {
+                    goto done;
+                }
+
+                is_supported = is_codec_supported(env, &jfields, info, mime, profile, log_ctx);
+
+                if (is_supported) {
+
+                    ret = av_dynarray_add_nofree(names, nb_names, name);
+                    if (ret < 0) {
+                        av_freep(&name);
+                    }
+                }
+                else
+                {
+                    av_freep(&name);
+                }
             }
         }
 
-        name = get_codec_name(env, &jfields, info, log_ctx);
-        if (!name) {
-            goto done;
-        }
-
-        is_supported = is_codec_supported(env, &jfields, info, mime, profile, log_ctx);
-        if (!is_supported) {
-            goto done_with_info;
-        }
-
-        ret = av_dynarray_add_nofree(names, nb_names, name);
-        if (ret < 0) {
-            av_freep(&name);
-            goto done_with_info;
-        }
-
-done_with_info:
         if (info) {
             (*env)->DeleteLocalRef(env, info);
             info = NULL;
         }
-
-        if (is_supported) {
-            break;
-        }
-
-        av_freep(&name);
     }
 
 done:
@@ -845,7 +844,8 @@ done:
     ff_jni_reset_jfields(env, &jfields, jni_amediacodeclist_mapping, 0, log_ctx);
     ff_jni_reset_jfields(env, &mediaformat_jfields, jni_amediaformat_mapping, 0, log_ctx);
 
-    qsort(*names, *nb_names, sizeof(**names), &codec_compare);
+    if (*nb_names > 0 && *names)
+        qsort(*names, *nb_names, sizeof(**names), &codec_compare);
 
     return ret;
 }
