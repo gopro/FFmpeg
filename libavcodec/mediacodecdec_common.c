@@ -866,9 +866,36 @@ static int mediacodec_dec_get_video_codec(AVCodecContext *avctx, MediaCodecDecCo
         av_log(avctx, AV_LOG_WARNING, "Unsupported or unknown profile\n");
     }
 
+    int encoder = 0;
+    int sw_ok = 1; // TODO pass in avctx
+    int ret = ff_AMediaCodecList_isSizeSupported(mime, avctx->width, avctx->height, 0.0, encoder, sw_ok, avctx);
+    if (ret) {
+        av_log(avctx, AV_LOG_WARNING, " SUPPORTED %s %dx%d", mime, avctx->width, avctx->height); // AV_LOG_INFO
+    }
+    else {
+        av_log(avctx, AV_LOG_ERROR, " NOT SUPPORTED %s %dx%d", mime, avctx->width, avctx->height);
+        return AVERROR_CODEC_CAP;
+    }
+    double fps = av_q2d(avctx->framerate);
+    if (fps == 0.0) {
+        double period = av_q2d(avctx->time_base);
+        if (period > 0.0) {
+            fps = 1.0 / period;
+        }
+    }
+    if (fps > 0.0) {
+        ret = ff_AMediaCodecList_isSizeSupported(mime, avctx->width, avctx->height, fps, encoder, sw_ok, avctx);
+        if (ret) {
+            av_log(avctx, AV_LOG_WARNING, " SUPPORTED %s %dx%d at %f fps", mime, avctx->width, avctx->height, fps); // AV_LOG_INFO
+        }
+        else {
+            av_log(avctx, AV_LOG_ERROR, " NOT SUPPORTED %s %dx%d at %f fps", mime, avctx->width, avctx->height, fps);
+        }
+    }
+
     int nb_names = 0;
     char **names = NULL;
-    int ret = ff_AMediaCodecList_getCodecNamesByType(&nb_names, &names, mime, profile, 0, avctx);
+    ret = ff_AMediaCodecList_getCodecNamesByType(&nb_names, &names, mime, profile, encoder, sw_ok, avctx);
     if (ret < 0) {
         av_log(avctx, AV_LOG_ERROR, "Failed to retrieve codec list for type %s", mime);
         return AVERROR_EXTERNAL;
