@@ -388,7 +388,6 @@ int ff_AMediaCodecProfile_getProfileFromAVCodecContext(AVCodecContext *avctx)
             return AVCProfileConstrainedBaseline;
         case AV_PROFILE_H264_MAIN:
             return AVCProfileMain;
-            break;
         case AV_PROFILE_H264_EXTENDED:
             return AVCProfileExtended;
         case AV_PROFILE_H264_HIGH:
@@ -1432,11 +1431,6 @@ static int codec_init_static_fields(FFAMediaCodecJni *codec)
     }
 
     codec->CONFIGURE_FLAG_ENCODE = (*env)->GetStaticIntField(env, codec->jfields.mediacodec_class, codec->jfields.configure_flag_encode_id);
-    if ((ret = ff_jni_exception_check(env, 1, codec)) < 0) {
-        goto fail;
-    }
-
-    codec->INFO_TRY_AGAIN_LATER = (*env)->GetStaticIntField(env, codec->jfields.mediacodec_class, codec->jfields.info_try_again_later_id);
     if ((ret = ff_jni_exception_check(env, 1, codec)) < 0) {
         goto fail;
     }
