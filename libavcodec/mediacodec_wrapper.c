@@ -909,8 +909,14 @@ int ff_AMediaCodecList_isSizeSupported(const char *mime, int w, int h, double fp
                 }
             }
 
-            av_log(log_ctx, AV_LOG_WARNING, "ff_AMediaCodecList_isSizeSupported-encoder: %d\n", encoder);
-            is_supported = candidate_ok && is_size_supported_for_type(env, &mediacodeclist_jfields, info, mime, w, h, fps, log_ctx);
+            if (candidate_ok) {
+                char *name = get_codec_name(env, &mediacodeclist_jfields, info, log_ctx);
+                is_supported = is_size_supported_for_type(env, &mediacodeclist_jfields, info, mime, w, h, fps, log_ctx);
+                av_log(log_ctx, AV_LOG_WARNING,
+                       "ff_AMediaCodecList_isSizeSupported: codec=%s mime=%s %dx%d@%f supported=%d\n",
+                       name ? name : "unknown", mime, w, h, fps, is_supported);
+                av_freep(&name);
+            }
         }
 
         if (info) {
