@@ -551,9 +551,10 @@ static int is_size_supported(JNIEnv *env, struct JNIAMediaCodecListFields *jfiel
         is_supported = (*env)->CallBooleanMethod(env, video_caps, jfields->is_size_supported_id, w, h);
     }
 
+    av_log(log_ctx, AV_LOG_WARNING, "ff_AMediaCodecList_isSizeSupported-is_size_supported: %d (w=%d, h=%d, fps=%f)\n", is_supported, w, h, fps);
+
     if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
         is_supported = 0;
-        goto done;
     }
 
 done:
@@ -660,9 +661,12 @@ static int is_size_supported_for_type(JNIEnv *env, struct JNIAMediaCodecListFiel
             goto done;
         }
 
+             av_log(log_ctx, AV_LOG_WARNING, "ff_AMediaCodecList_isSizeSupported-mime: %s\n", mime);
+             av_log(log_ctx, AV_LOG_WARNING, "ff_AMediaCodecList_isSizeSupported-supported_type: %s\n", supported_type);
         is_supported = !av_strcasecmp(supported_type, mime);
         av_freep(&supported_type);
 
+             av_log(log_ctx, AV_LOG_WARNING, "ff_AMediaCodecList_isSizeSupported-is_supported: %d\n", is_supported);
         if (is_supported) {
             jobject capabilities = (*env)->CallObjectMethod(env, info, jfields->get_codec_capabilities_id, type);
             if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
@@ -671,6 +675,7 @@ static int is_size_supported_for_type(JNIEnv *env, struct JNIAMediaCodecListFiel
 
             ret = is_size_supported(env, jfields, capabilities, w, h, fps, log_ctx);
 
+             av_log(log_ctx, AV_LOG_WARNING, "ff_AMediaCodecList_isSizeSupported-is_supported: %d (w=%d, h=%d, fps=%f)\n", ret, w, h, fps);
             if (capabilities) {
                 (*env)->DeleteLocalRef(env, capabilities);
                 capabilities = NULL;
@@ -869,11 +874,13 @@ int ff_AMediaCodecList_isSizeSupported(const char *mime, int w, int h, double fp
         goto done;
     }
 
+    av_log(log_ctx, AV_LOG_WARNING, "ff_AMediaCodecList_isSizeSupported-ff_jni_init_jfields: %s %d %d %f\n", mime, w, h, fps);
     codec_count = (*env)->CallStaticIntMethod(env, mediacodeclist_jfields.mediacodec_list_class, mediacodeclist_jfields.get_codec_count_id);
     if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
         goto done;
     }
 
+    av_log(log_ctx, AV_LOG_WARNING, "ff_AMediaCodecList_isSizeSupported-ff_jni_init_jfields: %d\n", codec_count);
     for(i = 0; i < codec_count; i++) {
         int is_encoder;
 
@@ -901,6 +908,7 @@ int ff_AMediaCodecList_isSizeSupported(const char *mime, int w, int h, double fp
                 }
             }
 
+            av_log(log_ctx, AV_LOG_WARNING, "ff_AMediaCodecList_isSizeSupported-encoder: %d\n", encoder);
             is_supported = candidate_ok && is_size_supported_for_type(env, &mediacodeclist_jfields, info, mime, w, h, fps, log_ctx);
         }
 
