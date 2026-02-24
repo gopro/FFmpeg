@@ -868,7 +868,7 @@ static int mediacodec_dec_get_video_codec(AVCodecContext *avctx, MediaCodecDecCo
 
     int encoder = 0;
     int sw_ok = 1; // TODO pass in avctx
-
+/*
     // First check is to be sure the codec is handling this resolution
     int ret = ff_AMediaCodecList_isSizeSupported(mime, avctx->width, avctx->height, 0.0, encoder, sw_ok, avctx);
     if (ret) {
@@ -897,7 +897,7 @@ static int mediacodec_dec_get_video_codec(AVCodecContext *avctx, MediaCodecDecCo
             }
         }
     }
-
+*/
     int nb_names = 0;
     char **names = NULL;
     ret = ff_AMediaCodecList_getCodecNamesByType(&nb_names, &names, mime, profile, encoder, sw_ok, avctx);
@@ -929,7 +929,7 @@ static int mediacodec_dec_get_video_codec(AVCodecContext *avctx, MediaCodecDecCo
         // getCodecNameByType() can fail due to missing JVM, while NDK
         // mediacodec can be used without JVM.
         if (!s->use_ndk_codec) {
-            return AVERROR_EXTERNAL;
+            return AVERROR_DECODER_NOT_FOUND;
         }
         av_log(avctx, AV_LOG_INFO, "Failed to getCodecNameByType\n");
     } else {
@@ -948,7 +948,7 @@ static int mediacodec_dec_get_video_codec(AVCodecContext *avctx, MediaCodecDecCo
     }
     if (!s->codec) {
         av_log(avctx, AV_LOG_ERROR, "Failed to create media decoder for type %s and name %s\n", mime, s->codec_name);
-        return AVERROR_EXTERNAL;
+        return AVERROR_DECODER_NOT_FOUND;
     }
     return 0;
 }
