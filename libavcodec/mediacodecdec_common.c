@@ -248,6 +248,7 @@ static enum AVPixelFormat mcdec_map_color_format(AVCodecContext *avctx,
 static int mc_add_packet_entry(MediaCodecDecContext *s, int64_t pts, int64_t duration)
 {
     int i;
+    void *ptr;
     for (i = 0; i < s->nb_pkt_entries; i++) {
         if (s->pkt_entries[i].pts == AV_NOPTS_VALUE) {
             s->pkt_entries[i].pts = pts;
@@ -255,7 +256,7 @@ static int mc_add_packet_entry(MediaCodecDecContext *s, int64_t pts, int64_t dur
             return i;
         }
     }
-    void *ptr = av_realloc_array(s->pkt_entries, sizeof(MediaCodecPacketEntry), s->nb_pkt_entries + 1);
+    ptr = av_realloc_array(s->pkt_entries, sizeof(MediaCodecPacketEntry), s->nb_pkt_entries + 1);
     if (!ptr)
         return -1;
     s->pkt_entries = ptr;
@@ -832,7 +833,12 @@ fail:
 static int mediacodec_dec_get_video_codec(AVCodecContext *avctx, MediaCodecDecContext *s,
                                           const char *mime, FFAMediaFormat *format)
 {
+    int ret;
     int profile;
+    int encoder = 0;
+    int sw_ok = 1; // TODO pass in avctx
+    int nb_names = 0;
+    char **names = NULL;
 
     enum AVPixelFormat pix_fmt;
     static const enum AVPixelFormat pix_fmts[] = {
@@ -866,11 +872,9 @@ static int mediacodec_dec_get_video_codec(AVCodecContext *avctx, MediaCodecDecCo
         av_log(avctx, AV_LOG_WARNING, "Unsupported or unknown profile\n");
     }
 
-    int encoder = 0;
-    int sw_ok = 1; // TODO pass in avctx
 /*
     // First check is to be sure the codec is handling this resolution
-    int ret = ff_AMediaCodecList_isSizeSupported(mime, avctx->width, avctx->height, 0.0, encoder, sw_ok, avctx);
+    ret = ff_AMediaCodecList_isSizeSupported(mime, avctx->width, avctx->height, 0.0, encoder, sw_ok, avctx);
     if (ret) {
         av_log(avctx, AV_LOG_WARNING, " SUPPORTED %s %dx%d", mime, avctx->width, avctx->height); // AV_LOG_INFO
     }
@@ -898,8 +902,6 @@ static int mediacodec_dec_get_video_codec(AVCodecContext *avctx, MediaCodecDecCo
         }
     }
 */
-    int nb_names = 0;
-    char **names = NULL;
     ret = ff_AMediaCodecList_getCodecNamesByType(&nb_names, &names, mime, profile, encoder, sw_ok, avctx);
     if (ret < 0) {
         av_log(avctx, AV_LOG_ERROR, "Failed to retrieve codec list for type %s", mime);
