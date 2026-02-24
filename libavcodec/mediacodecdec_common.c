@@ -1034,7 +1034,7 @@ int ff_mediacodec_dec_init(AVCodecContext *avctx, MediaCodecDecContext *s,
     return 0;
 
 fail:
-    av_log(avctx, AV_LOG_ERROR, "MediaCodec %p failed to start\n", s->codec);
+    av_log(avctx, AV_LOG_ERROR, "MediaCodec %p failed to start (ret = 0x%x '%s')\n", s->codec, ret, av_err2str(ret));
     ff_mediacodec_dec_close(avctx, s);
     return ret;
 }
