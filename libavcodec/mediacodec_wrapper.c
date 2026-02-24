@@ -95,7 +95,7 @@ static const struct FFJniField jni_amediacodeclist_mapping[] = {
         { "android/media/MediaCodecInfo$CodecCapabilities", "getVideoCapabilities", "()Landroid/media/MediaCodecInfo$VideoCapabilities;", FF_JNI_METHOD, OFFSET(get_video_capabilities_id), 1 },
 
     { "android/media/MediaCodecInfo$VideoCapabilities", NULL, NULL, FF_JNI_CLASS, OFFSET(video_capabilities_class), 1 },
-        { "android/media/MediaCodecInfo$VideoCapabilities", "isSizeSupported", "(II)Z", FF_JNI_METHOD, OFFSET((is_size_supported)_id), 1 },
+        { "android/media/MediaCodecInfo$VideoCapabilities", "isSizeSupported", "(II)Z", FF_JNI_METHOD, OFFSET(is_size_supported_id), 1 },
         { "android/media/MediaCodecInfo$VideoCapabilities", "areSizeAndRateSupported", "(IID)Z", FF_JNI_METHOD, OFFSET(are_size_and_rate_supported_id), 1 },
         { "android/media/MediaCodecInfo$VideoCapabilities", "getAchievableFrameRatesFor", "(II)Landroid/util/Range;", FF_JNI_METHOD, OFFSET(get_achievable_frame_rates_for_id), 0 },
 
