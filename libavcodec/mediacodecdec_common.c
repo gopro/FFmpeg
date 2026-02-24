@@ -876,7 +876,7 @@ static int mediacodec_dec_get_video_codec(AVCodecContext *avctx, MediaCodecDecCo
     }
     else {
         av_log(avctx, AV_LOG_ERROR, " NOT SUPPORTED %s %dx%d", mime, avctx->width, avctx->height);
-        return AVERROR_CODEC_CAP;
+        //return AVERROR_CODEC_CAP;
     }
     {
         // Second test is to log if the codec can reach the FPS required
