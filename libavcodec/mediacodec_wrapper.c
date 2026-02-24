@@ -59,6 +59,14 @@ struct JNIAMediaCodecListFields {
     jclass video_capabilities_class;
     jmethodID is_size_supported_id;
     jmethodID are_size_and_rate_supported_id;
+    jmethodID get_achievable_frame_rates_for_id;
+
+    jclass range_class;
+    jmethodID range_get_lower_id;
+    jmethodID range_get_upper_id;
+
+    jclass double_class;
+    jmethodID double_value_id;
 
     jclass codec_profile_level_class;
     jfieldID profile_id;
@@ -87,8 +95,16 @@ static const struct FFJniField jni_amediacodeclist_mapping[] = {
         { "android/media/MediaCodecInfo$CodecCapabilities", "getVideoCapabilities", "()Landroid/media/MediaCodecInfo$VideoCapabilities;", FF_JNI_METHOD, OFFSET(get_video_capabilities_id), 1 },
 
     { "android/media/MediaCodecInfo$VideoCapabilities", NULL, NULL, FF_JNI_CLASS, OFFSET(video_capabilities_class), 1 },
-        { "android/media/MediaCodecInfo$VideoCapabilities", "isSizeSupported", "(II)Z", FF_JNI_METHOD, OFFSET(is_size_supported_id), 1 },
+        { "android/media/MediaCodecInfo$VideoCapabilities", "isSizeSupported", "(II)Z", FF_JNI_METHOD, OFFSET((is_size_supported)_id), 1 },
         { "android/media/MediaCodecInfo$VideoCapabilities", "areSizeAndRateSupported", "(IID)Z", FF_JNI_METHOD, OFFSET(are_size_and_rate_supported_id), 1 },
+        { "android/media/MediaCodecInfo$VideoCapabilities", "getAchievableFrameRatesFor", "(II)Landroid/util/Range;", FF_JNI_METHOD, OFFSET(get_achievable_frame_rates_for_id), 0 },
+
+    { "android/util/Range", NULL, NULL, FF_JNI_CLASS, OFFSET(range_class), 0 },
+        { "android/util/Range", "getLower", "()Ljava/lang/Comparable;", FF_JNI_METHOD, OFFSET(range_get_lower_id), 0 },
+        { "android/util/Range", "getUpper", "()Ljava/lang/Comparable;", FF_JNI_METHOD, OFFSET(range_get_upper_id), 0 },
+
+    { "java/lang/Double", NULL, NULL, FF_JNI_CLASS, OFFSET(double_class), 0 },
+        { "java/lang/Double", "doubleValue", "()D", FF_JNI_METHOD, OFFSET(double_value_id), 0 },
 
     { "android/media/MediaCodecInfo$CodecProfileLevel", NULL, NULL, FF_JNI_CLASS, OFFSET(codec_profile_level_class), 1 },
         { "android/media/MediaCodecInfo$CodecProfileLevel", "profile", "I", FF_JNI_FIELD, OFFSET(profile_id), 1 },
@@ -676,7 +692,34 @@ static int is_size_supported_for_type(JNIEnv *env, struct JNIAMediaCodecListFiel
 
             ret = is_size_supported(env, jfields, capabilities, w, h, fps, log_ctx);
 
-             av_log(log_ctx, AV_LOG_WARNING, "ff_AMediaCodecList_isSizeSupported-is_supported: %d (w=%d, h=%d, fps=%f)\n", ret, w, h, fps);
+            av_log(log_ctx, AV_LOG_WARNING, "ff_AMediaCodecList_isSizeSupported-is_supported: %d (w=%d, h=%d, fps=%f)\n", ret, w, h, fps);
+
+            /* Query achievable frame rates for this size */
+            if (jfields->get_achievable_frame_rates_for_id && jfields->range_get_lower_id && jfields->double_value_id) {
+                jobject video_caps = (*env)->CallObjectMethod(env, capabilities, jfields->get_video_capabilities_id);
+                if (!ff_jni_exception_check(env, 1, log_ctx) && video_caps) {
+                    jobject range = (*env)->CallObjectMethod(env, video_caps, jfields->get_achievable_frame_rates_for_id, w, h);
+                    if (!ff_jni_exception_check(env, 1, log_ctx) && range) {
+                        jobject lower_obj = (*env)->CallObjectMethod(env, range, jfields->range_get_lower_id);
+                        jobject upper_obj = (*env)->CallObjectMethod(env, range, jfields->range_get_upper_id);
+                        if (lower_obj && upper_obj) {
+                            double lower = (*env)->CallDoubleMethod(env, lower_obj, jfields->double_value_id);
+                            double upper = (*env)->CallDoubleMethod(env, upper_obj, jfields->double_value_id);
+                            av_log(log_ctx, AV_LOG_WARNING,
+                                   "ff_AMediaCodecList_isSizeSupported - Achievable frame rates for %dx%d: %.2f - %.2f fps\n",
+                                   w, h, lower, upper);
+                        }
+                        if (lower_obj) (*env)->DeleteLocalRef(env, lower_obj);
+                        if (upper_obj) (*env)->DeleteLocalRef(env, upper_obj);
+                        (*env)->DeleteLocalRef(env, range);
+                    } else {
+                        av_log(log_ctx, AV_LOG_WARNING,
+                               "ff_AMediaCodecList_isSizeSupported - getAchievableFrameRatesFor(%d, %d) returned null or threw\n", w, h);
+                    }
+                    (*env)->DeleteLocalRef(env, video_caps);
+                }
+            }
+
             if (capabilities) {
                 (*env)->DeleteLocalRef(env, capabilities);
                 capabilities = NULL;
