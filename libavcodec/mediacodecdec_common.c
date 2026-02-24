@@ -868,6 +868,8 @@ static int mediacodec_dec_get_video_codec(AVCodecContext *avctx, MediaCodecDecCo
 
     int encoder = 0;
     int sw_ok = 1; // TODO pass in avctx
+
+    // First check is to be sure the codec is handling this resolution
     int ret = ff_AMediaCodecList_isSizeSupported(mime, avctx->width, avctx->height, 0.0, encoder, sw_ok, avctx);
     if (ret) {
         av_log(avctx, AV_LOG_WARNING, " SUPPORTED %s %dx%d", mime, avctx->width, avctx->height); // AV_LOG_INFO
@@ -876,20 +878,23 @@ static int mediacodec_dec_get_video_codec(AVCodecContext *avctx, MediaCodecDecCo
         av_log(avctx, AV_LOG_ERROR, " NOT SUPPORTED %s %dx%d", mime, avctx->width, avctx->height);
         return AVERROR_CODEC_CAP;
     }
-    double fps = av_q2d(avctx->framerate);
-    if (fps == 0.0) {
-        double period = av_q2d(avctx->time_base);
-        if (period > 0.0) {
-            fps = 1.0 / period;
+    {
+        // Second test is to log if the codec can reach the FPS required
+        double fps = av_q2d(avctx->framerate);
+        if (fps == 0.0) {
+            double period = av_q2d(avctx->time_base);
+            if (period > 0.0) {
+                fps = 1.0 / period;
+            }
         }
-    }
-    if (fps > 0.0) {
-        ret = ff_AMediaCodecList_isSizeSupported(mime, avctx->width, avctx->height, fps, encoder, sw_ok, avctx);
-        if (ret) {
-            av_log(avctx, AV_LOG_WARNING, " SUPPORTED %s %dx%d at %f fps", mime, avctx->width, avctx->height, fps); // AV_LOG_INFO
-        }
-        else {
-            av_log(avctx, AV_LOG_ERROR, " NOT SUPPORTED %s %dx%d at %f fps", mime, avctx->width, avctx->height, fps);
+        if (fps > 0.0) {
+            ret = ff_AMediaCodecList_isSizeSupported(mime, avctx->width, avctx->height, fps, encoder, sw_ok, avctx);
+            if (ret) {
+                av_log(avctx, AV_LOG_WARNING, " SUPPORTED %s %dx%d at %f fps", mime, avctx->width, avctx->height, fps); // AV_LOG_INFO
+            }
+            else {
+                av_log(avctx, AV_LOG_ERROR, " NOT SUPPORTED %s %dx%d at %f fps", mime, avctx->width, avctx->height, fps);
+            }
         }
     }
 
