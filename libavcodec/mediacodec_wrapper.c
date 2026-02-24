@@ -545,13 +545,14 @@ static int is_size_supported(JNIEnv *env, struct JNIAMediaCodecListFields *jfiel
     }
 
     if (fps > 0.0) {
+        av_log(log_ctx, AV_LOG_WARNING, "ff_AMediaCodecList_isSizeSupported-is_size_supported1: %d (w=%d, h=%d, fps=%f)\n", is_supported, w, h, fps);
         is_supported = (*env)->CallBooleanMethod(env, video_caps, jfields->are_size_and_rate_supported_id, w, h, fps);
     }
     else {
         is_supported = (*env)->CallBooleanMethod(env, video_caps, jfields->is_size_supported_id, w, h);
     }
 
-    av_log(log_ctx, AV_LOG_WARNING, "ff_AMediaCodecList_isSizeSupported-is_size_supported: %d (w=%d, h=%d, fps=%f)\n", is_supported, w, h, fps);
+    av_log(log_ctx, AV_LOG_WARNING, "ff_AMediaCodecList_isSizeSupported-is_size_supported2: %d (w=%d, h=%d, fps=%f)\n", is_supported, w, h, fps);
 
     if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
         is_supported = 0;
