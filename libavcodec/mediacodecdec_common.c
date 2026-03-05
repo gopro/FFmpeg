@@ -248,6 +248,7 @@ static enum AVPixelFormat mcdec_map_color_format(AVCodecContext *avctx,
 static int mc_add_packet_entry(MediaCodecDecContext *s, int64_t pts, int64_t duration)
 {
     int i;
+    void *ptr;
     for (i = 0; i < s->nb_pkt_entries; i++) {
         if (s->pkt_entries[i].pts == AV_NOPTS_VALUE) {
             s->pkt_entries[i].pts = pts;
@@ -255,7 +256,7 @@ static int mc_add_packet_entry(MediaCodecDecContext *s, int64_t pts, int64_t dur
             return i;
         }
     }
-    void *ptr = av_realloc_array(s->pkt_entries, sizeof(MediaCodecPacketEntry), s->nb_pkt_entries + 1);
+    ptr = av_realloc_array(s->pkt_entries, sizeof(MediaCodecPacketEntry), s->nb_pkt_entries + 1);
     if (!ptr)
         return -1;
     s->pkt_entries = ptr;
@@ -825,14 +826,20 @@ static int mediacodec_dec_probe(AVCodecContext *avctx, MediaCodecDecContext *s, 
 
     ret = 0;
 fail:
-    ff_AMediaCodec_delete(codec);
+    if (codec)
+        ff_AMediaCodec_delete(codec);
     return ret;
 }
 
 static int mediacodec_dec_get_video_codec(AVCodecContext *avctx, MediaCodecDecContext *s,
                                           const char *mime, FFAMediaFormat *format)
 {
+    int ret;
     int profile;
+    int encoder = 0;
+    int sw_ok = 1; // TODO pass in avctx
+    int nb_names = 0;
+    char **names = NULL;
 
     enum AVPixelFormat pix_fmt;
     static const enum AVPixelFormat pix_fmts[] = {
@@ -866,9 +873,38 @@ static int mediacodec_dec_get_video_codec(AVCodecContext *avctx, MediaCodecDecCo
         av_log(avctx, AV_LOG_WARNING, "Unsupported or unknown profile\n");
     }
 
-    int nb_names = 0;
-    char **names = NULL;
-    int ret = ff_AMediaCodecList_getCodecNamesByType(&nb_names, &names, mime, profile, 0, avctx);
+
+ // mediacodec_dec_probe is done after ff_AMediaCodecList_getCodecNamesByType, it is more reliable than android isSizeSupported
+    // First check is to be sure the codec is handling this resolution
+    ret = ff_AMediaCodecList_isSizeSupported(mime, avctx->width, avctx->height, 0.0, encoder, sw_ok, avctx);
+    if (ret) {
+        av_log(avctx, AV_LOG_DEBUG, " SUPPORTED %s %dx%d", mime, avctx->width, avctx->height); // AV_LOG_INFO
+    }
+    else {
+        av_log(avctx, AV_LOG_WARNING, " NOT SUPPORTED %s %dx%d", mime, avctx->width, avctx->height);
+//        return AVERROR_DECODER_NOT_FOUND; // Commented to continue to get the media anyway, because software decoder or maybe hardware can report not supported, but do it anyway.
+    }
+    {
+        // Second test is to log if the codec can reach the FPS required
+        double fps = av_q2d(avctx->framerate);
+        if (fps == 0.0) {
+            double period = av_q2d(avctx->time_base);
+            if (period > 0.0) {
+                fps = 1.0 / period;
+            }
+        }
+        if (fps > 0.0) {
+            ret = ff_AMediaCodecList_isSizeSupported(mime, avctx->width, avctx->height, fps, encoder, sw_ok, avctx);
+            if (ret) {
+                av_log(avctx, AV_LOG_DEBUG, " SUPPORTED %s %dx%d at %f fps", mime, avctx->width, avctx->height, fps); // AV_LOG_INFO
+            }
+            else {
+                av_log(avctx, AV_LOG_WARNING, " NOT SUPPORTED %s %dx%d at %f fps", mime, avctx->width, avctx->height, fps);
+            }
+        }
+    }
+
+    ret = ff_AMediaCodecList_getCodecNamesByType(&nb_names, &names, mime, profile, encoder, sw_ok, avctx);
     if (ret < 0) {
         av_log(avctx, AV_LOG_ERROR, "Failed to retrieve codec list for type %s", mime);
         return AVERROR_EXTERNAL;
@@ -897,7 +933,7 @@ static int mediacodec_dec_get_video_codec(AVCodecContext *avctx, MediaCodecDecCo
         // getCodecNameByType() can fail due to missing JVM, while NDK
         // mediacodec can be used without JVM.
         if (!s->use_ndk_codec) {
-            return AVERROR_EXTERNAL;
+            return AVERROR_DECODER_NOT_FOUND;
         }
         av_log(avctx, AV_LOG_INFO, "Failed to getCodecNameByType\n");
     } else {
@@ -916,7 +952,7 @@ static int mediacodec_dec_get_video_codec(AVCodecContext *avctx, MediaCodecDecCo
     }
     if (!s->codec) {
         av_log(avctx, AV_LOG_ERROR, "Failed to create media decoder for type %s and name %s\n", mime, s->codec_name);
-        return AVERROR_EXTERNAL;
+        return AVERROR_DECODER_NOT_FOUND;
     }
     return 0;
 }
@@ -1000,7 +1036,7 @@ int ff_mediacodec_dec_init(AVCodecContext *avctx, MediaCodecDecContext *s,
     return 0;
 
 fail:
-    av_log(avctx, AV_LOG_ERROR, "MediaCodec %p failed to start\n", s->codec);
+    av_log(avctx, AV_LOG_ERROR, "MediaCodec %p failed to start (ret = 0x%x '%s')\n", s->codec, ret, av_err2str(ret));
     ff_mediacodec_dec_close(avctx, s);
     return ret;
 }

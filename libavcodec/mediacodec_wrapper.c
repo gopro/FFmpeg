@@ -54,6 +54,11 @@ struct JNIAMediaCodecListFields {
     jclass codec_capabilities_class;
     jfieldID color_formats_id;
     jfieldID profile_levels_id;
+    jmethodID get_video_capabilities_id;
+
+    jclass video_capabilities_class;
+    jmethodID is_size_supported_id;
+    jmethodID are_size_and_rate_supported_id;
 
     jclass codec_profile_level_class;
     jfieldID profile_id;
@@ -79,6 +84,11 @@ static const struct FFJniField jni_amediacodeclist_mapping[] = {
     { "android/media/MediaCodecInfo$CodecCapabilities", NULL, NULL, FF_JNI_CLASS, OFFSET(codec_capabilities_class), 1 },
         { "android/media/MediaCodecInfo$CodecCapabilities", "colorFormats", "[I", FF_JNI_FIELD, OFFSET(color_formats_id), 1 },
         { "android/media/MediaCodecInfo$CodecCapabilities", "profileLevels", "[Landroid/media/MediaCodecInfo$CodecProfileLevel;", FF_JNI_FIELD, OFFSET(profile_levels_id), 1 },
+        { "android/media/MediaCodecInfo$CodecCapabilities", "getVideoCapabilities", "()Landroid/media/MediaCodecInfo$VideoCapabilities;", FF_JNI_METHOD, OFFSET(get_video_capabilities_id), 1 },
+
+    { "android/media/MediaCodecInfo$VideoCapabilities", NULL, NULL, FF_JNI_CLASS, OFFSET(video_capabilities_class), 1 },
+        { "android/media/MediaCodecInfo$VideoCapabilities", "isSizeSupported", "(II)Z", FF_JNI_METHOD, OFFSET(is_size_supported_id), 1 },
+        { "android/media/MediaCodecInfo$VideoCapabilities", "areSizeAndRateSupported", "(IID)Z", FF_JNI_METHOD, OFFSET(are_size_and_rate_supported_id), 1 },
 
     { "android/media/MediaCodecInfo$CodecProfileLevel", NULL, NULL, FF_JNI_CLASS, OFFSET(codec_profile_level_class), 1 },
         { "android/media/MediaCodecInfo$CodecProfileLevel", "profile", "I", FF_JNI_FIELD, OFFSET(profile_id), 1 },
@@ -378,7 +388,6 @@ int ff_AMediaCodecProfile_getProfileFromAVCodecContext(AVCodecContext *avctx)
             return AVCProfileConstrainedBaseline;
         case AV_PROFILE_H264_MAIN:
             return AVCProfileMain;
-            break;
         case AV_PROFILE_H264_EXTENDED:
             return AVCProfileExtended;
         case AV_PROFILE_H264_HIGH:
@@ -525,6 +534,35 @@ done:
     return is_supported;
 }
 
+static int is_size_supported(JNIEnv *env, struct JNIAMediaCodecListFields *jfields, jobject capabilities, int w, int h, double fps, void *log_ctx)
+{
+    int is_supported = 0;
+
+    jobject video_caps = (*env)->CallObjectMethod(env, capabilities, jfields->get_video_capabilities_id);
+
+    if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
+        goto done;
+    }
+
+    if (fps > 0.0) {
+        is_supported = (*env)->CallBooleanMethod(env, video_caps, jfields->are_size_and_rate_supported_id, w, h, fps);
+    }
+    else {
+        is_supported = (*env)->CallBooleanMethod(env, video_caps, jfields->is_size_supported_id, w, h);
+    }
+
+    if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
+        is_supported = 0;
+    }
+
+done:
+    if (video_caps) {
+        (*env)->DeleteLocalRef(env, video_caps);
+    }
+
+    return is_supported;
+}
+
 static int is_codec_supported(JNIEnv *env, struct JNIAMediaCodecListFields *jfields, jobject info, const char *mime, int profile, void *log_ctx)
 {
     int i;
@@ -592,6 +630,74 @@ done:
     return ret;
 }
 
+static int is_size_supported_for_type(JNIEnv *env, struct JNIAMediaCodecListFields *jfields, jobject info, const char *mime, int w, int h, double fps, void *log_ctx)
+{
+    int i;
+    int ret = 0;
+    jobject type = NULL;
+    jobject types = NULL;
+    int nb_types = 0;
+
+
+    types = (*env)->CallObjectMethod(env, info, jfields->get_supported_types_id);
+    if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
+        goto done;
+    }
+
+    nb_types = (*env)->GetArrayLength(env, types);
+    for (i = 0; i < nb_types; i++) {
+        int is_supported;
+        const char *supported_type;
+
+        type = (*env)->GetObjectArrayElement(env, types, i);
+        if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
+            goto done;
+        }
+
+        supported_type = ff_jni_jstring_to_utf_chars(env, type, log_ctx);
+        if (!supported_type) {
+            goto done;
+        }
+
+        is_supported = !av_strcasecmp(supported_type, mime);
+        av_freep(&supported_type);
+
+        if (is_supported) {
+            jobject capabilities = (*env)->CallObjectMethod(env, info, jfields->get_codec_capabilities_id, type);
+            if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
+                goto done;
+            }
+
+            ret = is_size_supported(env, jfields, capabilities, w, h, fps, log_ctx);
+
+            if (capabilities) {
+                (*env)->DeleteLocalRef(env, capabilities);
+                capabilities = NULL;
+            }
+        }
+
+        if (type) {
+            (*env)->DeleteLocalRef(env, type);
+            type = NULL;
+        }
+
+        if (ret) {
+            break;
+        }
+    }
+
+done:
+    if (type) {
+        (*env)->DeleteLocalRef(env, type);
+    }
+
+    if (types) {
+        (*env)->DeleteLocalRef(env, types);
+    }
+
+    return ret;
+}
+
 static char *get_codec_name(JNIEnv *env, struct JNIAMediaCodecListFields *jfields, jobject info, void *log_ctx)
 {
     char *name = NULL;
@@ -628,6 +734,9 @@ static int get_codec_score(const char *name)
     if (strstr(name, "OMX.qcom.video.decoder.hevcswvdec"))
         return CODEC_RANK_SW + 3;
 
+    if (strstr(name, "c2.android."))
+        return CODEC_RANK_SW + 4;
+
     return CODEC_RANK_HW;
 }
 
@@ -640,9 +749,9 @@ static int codec_compare(const void *a, const void *b)
     return score2 - score1;
 }
 
-int ff_AMediaCodecList_getCodecNamesByType(int *nb_names, char ***names, const char *mime, int profile, int encoder, void *log_ctx)
+int ff_AMediaCodecList_getCodecNamesByType(int *nb_names, char ***names, const char *mime, int profile, int encoder, int sw_ok, void *log_ctx)
 {
-    int ret;
+    int ret = 0;
     int i;
     int codec_count;
     char *name = NULL;
@@ -670,7 +779,7 @@ int ff_AMediaCodecList_getCodecNamesByType(int *nb_names, char ***names, const c
 
     for(i = 0; i < codec_count; i++) {
         int is_encoder;
-        int is_supported = 0;
+        int is_supported = 1;
 
         info = (*env)->CallStaticObjectMethod(env, jfields.mediacodec_list_class, jfields.get_codec_info_at_id, i);
         if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
@@ -682,48 +791,52 @@ int ff_AMediaCodecList_getCodecNamesByType(int *nb_names, char ***names, const c
             goto done;
         }
 
-        if (is_encoder != encoder) {
-            goto done_with_info;
-        }
+        if (is_encoder == encoder) {
 
-        if (jfields.is_software_only_id) {
-            int is_software_only = (*env)->CallBooleanMethod(env, info, jfields.is_software_only_id);
-            if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
-                goto done;
+            if (!sw_ok && jfields.is_software_only_id) {
+                int is_software_only = (*env)->CallBooleanMethod(env, info, jfields.is_software_only_id);
+                if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
+                    goto done;
+                }
+
+                if (is_software_only) {
+                    is_supported=0;
+                }
             }
 
-            if (is_software_only) {
-                goto done_with_info;
+            if(is_supported)
+            {
+                name = get_codec_name(env, &jfields, info, log_ctx);
+
+                if (!name)
+                {
+                    if (info) {
+                        (*env)->DeleteLocalRef(env, info);
+                        info = NULL;
+                    }
+                    continue;
+                }
+
+                is_supported = is_codec_supported(env, &jfields, info, mime, profile, log_ctx);
+
+                if (is_supported) {
+
+                    ret = av_dynarray_add_nofree(names, nb_names, name);
+                    if (ret < 0) {
+                        av_freep(&name);
+                    }
+                }
+                else
+                {
+                    av_freep(&name);
+                }
             }
         }
 
-        name = get_codec_name(env, &jfields, info, log_ctx);
-        if (!name) {
-            goto done;
-        }
-
-        is_supported = is_codec_supported(env, &jfields, info, mime, profile, log_ctx);
-        if (!is_supported) {
-            goto done_with_info;
-        }
-
-        ret = av_dynarray_add_nofree(names, nb_names, name);
-        if (ret < 0) {
-            av_freep(&name);
-            goto done_with_info;
-        }
-
-done_with_info:
         if (info) {
             (*env)->DeleteLocalRef(env, info);
             info = NULL;
         }
-
-        if (is_supported) {
-            break;
-        }
-
-        av_freep(&name);
     }
 
 done:
@@ -734,9 +847,91 @@ done:
     ff_jni_reset_jfields(env, &jfields, jni_amediacodeclist_mapping, 0, log_ctx);
     ff_jni_reset_jfields(env, &mediaformat_jfields, jni_amediaformat_mapping, 0, log_ctx);
 
-    qsort(*names, *nb_names, sizeof(**names), &codec_compare);
+    if (*nb_names > 0 && *names)
+        qsort(*names, *nb_names, sizeof(**names), &codec_compare);
 
     return ret;
+}
+
+int ff_AMediaCodecList_isSizeSupported(const char *mime, int w, int h, double fps, int encoder, int sw_ok, void *log_ctx)
+{
+    int ret = 0;
+    int i;
+    int codec_count;
+    int is_supported = 0;
+
+    JNIEnv *env = NULL;
+    struct JNIAMediaCodecListFields mediacodeclist_jfields = { 0 };
+
+    jobject info = NULL;
+
+    JNI_GET_ENV_OR_RETURN(env, log_ctx, -1);
+
+    av_log(log_ctx, AV_LOG_WARNING, "ff_AMediaCodecList_isSizeSupported: %s %d %d %f\n", mime, w, h, fps);
+
+    if ((ret = ff_jni_init_jfields(env, &mediacodeclist_jfields, jni_amediacodeclist_mapping, 0, log_ctx)) < 0) {
+        goto done;
+    }
+
+    codec_count = (*env)->CallStaticIntMethod(env, mediacodeclist_jfields.mediacodec_list_class, mediacodeclist_jfields.get_codec_count_id);
+    if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
+        goto done;
+    }
+
+    for(i = 0; i < codec_count; i++) {
+        int is_encoder;
+
+        info = (*env)->CallStaticObjectMethod(env, mediacodeclist_jfields.mediacodec_list_class, mediacodeclist_jfields.get_codec_info_at_id, i);
+        if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
+            goto done;
+        }
+
+        is_encoder = (*env)->CallBooleanMethod(env, info, mediacodeclist_jfields.is_encoder_id);
+        if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
+            goto done;
+        }
+
+        if (is_encoder == encoder)
+        {
+            int candidate_ok = 1;
+            if (!sw_ok && mediacodeclist_jfields.is_software_only_id) {
+                int is_software_only = (*env)->CallBooleanMethod(env, info, mediacodeclist_jfields.is_software_only_id);
+                if (ff_jni_exception_check(env, 1, log_ctx) < 0) {
+                    goto done;
+                }
+
+                if (is_software_only) {
+                    candidate_ok = 0;
+                }
+            }
+
+            if (candidate_ok) {
+                char *name = get_codec_name(env, &mediacodeclist_jfields, info, log_ctx);
+                is_supported = is_size_supported_for_type(env, &mediacodeclist_jfields, info, mime, w, h, fps, log_ctx);
+                av_log(log_ctx, AV_LOG_INFO,
+                       "ff_AMediaCodecList_isSizeSupported: codec=%s mime=%s %dx%d@%f supported=%d\n",
+                       name ? name : "unknown", mime, w, h, fps, is_supported);
+                av_freep(&name);
+            }
+        }
+
+        if (info) {
+            (*env)->DeleteLocalRef(env, info);
+            info = NULL;
+        }
+        if (is_supported) {
+            break;
+        }
+    }
+
+done:
+    if (info) {
+        (*env)->DeleteLocalRef(env, info);
+    }
+
+    ff_jni_reset_jfields(env, &mediacodeclist_jfields, jni_amediacodeclist_mapping, 0, log_ctx);
+
+    return is_supported;
 }
 
 static FFAMediaFormat *mediaformat_jni_new(void)
@@ -1247,11 +1442,6 @@ static int codec_init_static_fields(FFAMediaCodecJni *codec)
     }
 
     codec->CONFIGURE_FLAG_ENCODE = (*env)->GetStaticIntField(env, codec->jfields.mediacodec_class, codec->jfields.configure_flag_encode_id);
-    if ((ret = ff_jni_exception_check(env, 1, codec)) < 0) {
-        goto fail;
-    }
-
-    codec->INFO_TRY_AGAIN_LATER = (*env)->GetStaticIntField(env, codec->jfields.mediacodec_class, codec->jfields.info_try_again_later_id);
     if ((ret = ff_jni_exception_check(env, 1, codec)) < 0) {
         goto fail;
     }
