@@ -57,7 +57,8 @@
 
 int ff_AMediaCodecProfile_getProfileFromAVCodecContext(AVCodecContext *avctx);
 
-int ff_AMediaCodecList_getCodecNamesByType(int *nb_names, char ***names, const char *mime, int profile, int encoder, void *log_ctx);
+int ff_AMediaCodecList_getCodecNamesByType(int *nb_names, char ***names, const char *mime, int profile, int encoder, int sw_ok, void *log_ctx);
+int ff_AMediaCodecList_isSizeSupported(const char *mime, int w, int h, double fps, int encoder, int sw_ok, void *log_ctx);
 
 typedef struct FFAMediaFormat FFAMediaFormat;
 struct FFAMediaFormat {
