@@ -48,6 +48,8 @@
 #include "refstruct.h"
 #include "thread.h"
 
+#include "../tracy_c.h"
+
 /**
  * Maximum size in bytes of extradata.
  * This value was chosen such that every bit of the buffer is
@@ -142,21 +144,27 @@ static int64_t get_bit_rate(AVCodecContext *ctx)
 
 int attribute_align_arg avcodec_open2(AVCodecContext *avctx, const AVCodec *codec, AVDictionary **options)
 {
+    TRACY_ZONE_START("avcodec_open2")
     int ret = 0;
     AVCodecInternal *avci;
     const FFCodec *codec2;
     const AVDictionaryEntry *e;
 
     if (avcodec_is_open(avctx))
+    {
+        TRACY_ZONE_END_ERROR("already_opened");
         return 0;
+    }
 
     if (!codec && !avctx->codec) {
         av_log(avctx, AV_LOG_ERROR, "No codec provided to avcodec_open2()\n");
+        TRACY_ZONE_END_ERROR("no_codec_provided");
         return AVERROR(EINVAL);
     }
     if (codec && avctx->codec && codec != avctx->codec) {
         av_log(avctx, AV_LOG_ERROR, "This AVCodecContext was allocated for %s, "
                                     "but %s passed to avcodec_open2()\n", avctx->codec->name, codec->name);
+        TRACY_ZONE_END_ERROR("codec_mismatch");
         return AVERROR(EINVAL);
     }
     if (!codec)
@@ -166,6 +174,7 @@ int attribute_align_arg avcodec_open2(AVCodecContext *avctx, const AVCodec *code
     if ((avctx->codec_type != AVMEDIA_TYPE_UNKNOWN && avctx->codec_type != codec->type) ||
         (avctx->codec_id   != AV_CODEC_ID_NONE     && avctx->codec_id   != codec->id)) {
         av_log(avctx, AV_LOG_ERROR, "Codec type or id mismatches\n");
+        TRACY_ZONE_END_ERROR("codec_type_id_mismatch");
         return AVERROR(EINVAL);
     }
 
@@ -174,19 +183,25 @@ int attribute_align_arg avcodec_open2(AVCodecContext *avctx, const AVCodec *code
     avctx->codec      = codec;
 
     if (avctx->extradata_size < 0 || avctx->extradata_size >= FF_MAX_EXTRADATA_SIZE)
+    {
+        TRACY_ZONE_END_ERROR("invalid_extradata_size");
         return AVERROR(EINVAL);
+    }
 
     // set the whitelist from provided options dict,
     // so we can check it immediately
     e = options ? av_dict_get(*options, "codec_whitelist", NULL, 0) : NULL;
     if (e) {
         ret = av_opt_set(avctx, e->key, e->value, 0);
-        if (ret < 0)
+        if (ret < 0) {
+            TRACY_ZONE_END_ERROR("av_opt_set_failed");
             return ret;
+        }
     }
 
     if (avctx->codec_whitelist && av_match_list(codec->name, avctx->codec_whitelist, ',') <= 0) {
         av_log(avctx, AV_LOG_ERROR, "Codec (%s) not on whitelist \'%s\'\n", codec->name, avctx->codec_whitelist);
+        TRACY_ZONE_END_ERROR("codec_not_on_whitelist");
         return AVERROR(EINVAL);
     }
 
@@ -364,7 +379,7 @@ int attribute_align_arg avcodec_open2(AVCodecContext *avctx, const AVCodec *code
         av_assert0(*(const AVClass **)avctx->priv_data == codec->priv_class);
 
 end:
-
+    TRACY_ZONE_END_OR_ERROR_CODE_TEXT("avcodec_open2", ret);
     return ret;
 free_and_end:
     ff_codec_close(avctx);
@@ -373,6 +388,7 @@ free_and_end:
 
 void avcodec_flush_buffers(AVCodecContext *avctx)
 {
+    TRACY_ZONE_START("avcodec_flush_buffers")
     AVCodecInternal *avci = avctx->internal;
 
     if (av_codec_is_encoder(avctx->codec)) {
@@ -383,6 +399,7 @@ void avcodec_flush_buffers(AVCodecContext *avctx)
             // flushed. Otherwise, this is a no-op.
             av_log(avctx, AV_LOG_WARNING, "Ignoring attempt to flush encoder "
                    "that doesn't support it\n");
+            TRACY_ZONE_END_ERROR("flush_unsupported_encoder");
             return;
         }
         ff_encode_flush_buffers(avctx);
@@ -401,6 +418,7 @@ void avcodec_flush_buffers(AVCodecContext *avctx)
         ff_thread_flush(avctx);
     else if (ffcodec(avctx->codec)->flush)
         ffcodec(avctx->codec)->flush(avctx);
+    TRACY_ZONE_END;
 }
 
 void avsubtitle_free(AVSubtitle *sub)
@@ -427,12 +445,17 @@ void avsubtitle_free(AVSubtitle *sub)
 
 av_cold void ff_codec_close(AVCodecContext *avctx)
 {
+    TRACY_ZONE_START("ff_codec_close")
     int i;
 
     if (!avctx)
+    {
+        TRACY_ZONE_END_ERROR("ff_codec_close: avctx is NULL");
         return;
+    }
 
     if (avcodec_is_open(avctx)) {
+        TRACY_ZONE_START_CTX(tracy_ctx_open, "is_open")
         AVCodecInternal *avci = avctx->internal;
 
         if (CONFIG_FRAME_THREAD_ENCODER &&
@@ -471,6 +494,7 @@ av_cold void ff_codec_close(AVCodecContext *avctx)
 #endif
 
         av_freep(&avctx->internal);
+        TRACY_ZONE_END_CTX(tracy_ctx_open);
     }
 
     for (i = 0; i < avctx->nb_coded_side_data; i++)
@@ -495,6 +519,7 @@ av_cold void ff_codec_close(AVCodecContext *avctx)
 
     avctx->codec = NULL;
     avctx->active_thread_type = 0;
+    TRACY_ZONE_END;
 }
 
 #if FF_API_AVCODEC_CLOSE

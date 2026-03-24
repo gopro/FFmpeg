@@ -105,6 +105,7 @@ Configuration options:
   --disable-static         do not build static libraries [no]
   --enable-shared          build shared libraries [no]
   --enable-small           optimize for size instead of speed
+  --enable-tracy           enable Tracy profiler instrumentation
   --disable-runtime-cpudetect disable detecting CPU capabilities at runtime (smaller binary)
   --enable-gray            enable full grayscale support (slower color)
   --disable-swscale-alpha  disable alpha channel support in swscale
@@ -2048,6 +2049,7 @@ FEATURE_LIST="
     small
     static
     swscale_alpha
+    tracy
 "
 
 # this list should be kept in linking order
@@ -4048,7 +4050,7 @@ swscale_suggest="libm stdatomic"
 
 avcodec_extralibs="pthreads_extralibs iconv_extralibs dxva2_extralibs lcms2_extralibs"
 avfilter_extralibs="pthreads_extralibs"
-avutil_extralibs="d3d11va_extralibs d3d12va_extralibs mediacodec_extralibs nanosleep_extralibs pthreads_extralibs vaapi_drm_extralibs vaapi_x11_extralibs vaapi_win32_extralibs vdpau_x11_extralibs"
+avutil_extralibs="d3d11va_extralibs d3d12va_extralibs mediacodec_extralibs nanosleep_extralibs pthreads_extralibs vaapi_drm_extralibs vaapi_x11_extralibs vaapi_win32_extralibs vdpau_x11_extralibs tracy_extralibs"
 
 # programs
 ffmpeg_deps="avcodec avfilter avformat threads"
@@ -7532,6 +7534,13 @@ EOF
 fi
 
 if [ -z "$optflags" ]; then
+    if enabled tracy; then
+        check_cppflags -DTRACY_ENABLE
+        tracy_extralibs="-ltracy"
+        if [ "$target_os" = "darwin" ]; then
+            tracy_extralibs="$tracy_extralibs -lc++ -lc++abi"
+        fi
+    fi
     if enabled small; then
         optflags=$cflags_size
     elif enabled optimizations; then
@@ -7975,6 +7984,7 @@ fi
 echo "debug symbols             ${debug-no}"
 echo "strip symbols             ${stripping-no}"
 echo "optimize for size         ${small-no}"
+echo "enable tracy              ${tracy-no}"
 echo "optimizations             ${optimizations-no}"
 echo "static                    ${static-no}"
 echo "shared                    ${shared-no}"
