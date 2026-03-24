@@ -32,6 +32,8 @@
 #include <poll.h>
 #endif
 
+#include "../tracy_c.h"
+
 typedef struct TCPContext {
     const AVClass *class;
     int fd;
@@ -139,6 +141,7 @@ static int customize_fd(void *ctx, int fd, int family)
 /* return non zero if error */
 static int tcp_open(URLContext *h, const char *uri, int flags)
 {
+    TRACY_ZONE_START("tcp_open");
     struct addrinfo hints = { 0 }, *ai, *cur_ai;
     int port, fd = -1;
     TCPContext *s = h->priv_data;
@@ -152,9 +155,13 @@ static int tcp_open(URLContext *h, const char *uri, int flags)
     av_url_split(proto, sizeof(proto), NULL, 0, hostname, sizeof(hostname),
         &port, path, sizeof(path), uri);
     if (strcmp(proto, "tcp"))
+    {
+        TRACY_ZONE_END_ERROR_CODE_TEXT("tcp_open_fail_tcp", AVERROR(EINVAL));
         return AVERROR(EINVAL);
+    }
     if (port <= 0 || port >= 65536) {
         av_log(h, AV_LOG_ERROR, "Port missing in uri\n");
+        TRACY_ZONE_END_ERROR_CODE_TEXT("tcp_open_fail_missing_port", AVERROR(ENOMEM));
         return AVERROR(EINVAL);
     }
     p = strchr(uri, '?');
@@ -170,13 +177,19 @@ static int tcp_open(URLContext *h, const char *uri, int flags)
             av_freep(&s->local_port);
             s->local_port = av_strdup(buf);
             if (!s->local_port)
+            {
+                TRACY_ZONE_END_ERROR_CODE_TEXT("tcp_open_fail_local_port", AVERROR(ENOMEM));
                 return AVERROR(ENOMEM);
+            }
         }
         if (av_find_info_tag(buf, sizeof(buf), "local_addr", p)) {
             av_freep(&s->local_addr);
             s->local_addr = av_strdup(buf);
             if (!s->local_addr)
+            {
+                TRACY_ZONE_END_ERROR_CODE_TEXT("tcp_open_fail_local_addr", AVERROR(ENOMEM));
                 return AVERROR(ENOMEM);
+            }
         }
         if (av_find_info_tag(buf, sizeof(buf), "timeout", p)) {
             s->rw_timeout = strtol(buf, NULL, 10);
@@ -211,6 +224,7 @@ static int tcp_open(URLContext *h, const char *uri, int flags)
         av_log(h, AV_LOG_ERROR,
                "Failed to resolve hostname %s: %s\n",
                hostname, gai_strerror(ret));
+        TRACY_ZONE_END_ERROR_CODE_TEXT("tcp_open_fail", ret);
         return AVERROR(EIO);
     }
 
@@ -262,12 +276,14 @@ static int tcp_open(URLContext *h, const char *uri, int flags)
     s->fd = fd;
 
     freeaddrinfo(ai);
+    TRACY_ZONE_END;
     return 0;
 
  fail1:
     if (fd >= 0)
         closesocket(fd);
     freeaddrinfo(ai);
+    TRACY_ZONE_END_ERROR_CODE_TEXT("tcp_open_fail", ret);
     return ret;
 }
 
@@ -280,7 +296,9 @@ static int tcp_accept(URLContext *s, URLContext **c)
     if ((ret = ffurl_alloc(c, s->filename, s->flags, &s->interrupt_callback)) < 0)
         return ret;
     cc = (*c)->priv_data;
+    TRACY_ZONE_START("tcp_accept");
     ret = ff_accept(sc->fd, sc->listen_timeout, s);
+    TRACY_ZONE_END;
     if (ret < 0) {
         ffurl_closep(c);
         return ret;
@@ -291,31 +309,46 @@ static int tcp_accept(URLContext *s, URLContext **c)
 
 static int tcp_read(URLContext *h, uint8_t *buf, int size)
 {
+    TRACY_ZONE_START("tcp_read");
     TCPContext *s = h->priv_data;
     int ret;
 
     if (!(h->flags & AVIO_FLAG_NONBLOCK)) {
+        TRACY_ZONE_START_CTX(timeout, "ff_network_wait_fd_timeout");
         ret = ff_network_wait_fd_timeout(s->fd, 0, h->rw_timeout, &h->interrupt_callback);
+        TRACY_ZONE_END_CTX(timeout);
         if (ret)
-            return ret;
+        {
+            TRACY_ZONE_END_ERROR_CODE_TEXT("tcp_read_fail", ret);
+            return ret; 
+        }
     }
     ret = recv(s->fd, buf, size, 0);
     if (ret == 0)
+    {
+        TRACY_ZONE_END_ERROR_CODE_TEXT("tcp_read_fail", AVERROR_EOF);
         return AVERROR_EOF;
+    }
+    TRACY_ZONE_END;
     return ret < 0 ? ff_neterrno() : ret;
 }
 
 static int tcp_write(URLContext *h, const uint8_t *buf, int size)
 {
+    TRACY_ZONE_START("tcp_write");
     TCPContext *s = h->priv_data;
     int ret;
 
     if (!(h->flags & AVIO_FLAG_NONBLOCK)) {
         ret = ff_network_wait_fd_timeout(s->fd, 1, h->rw_timeout, &h->interrupt_callback);
         if (ret)
+        {
+            TRACY_ZONE_END_ERROR_CODE_TEXT("tcp_write_fail", ret);
             return ret;
+        }
     }
     ret = send(s->fd, buf, size, MSG_NOSIGNAL);
+    TRACY_ZONE_END;
     return ret < 0 ? ff_neterrno() : ret;
 }
 

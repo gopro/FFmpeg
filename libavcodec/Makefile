@@ -1340,6 +1340,10 @@ CLEANFILES = *_tables.c *_tables.h *_tablegen$(HOSTEXESUF)
 $(SUBDIR)tests/dct$(EXESUF): $(SUBDIR)dctref.o $(SUBDIR)aandcttab.o
 $(SUBDIR)dv_tablegen$(HOSTEXESUF): $(SUBDIR)dvdata_host.o
 
+ifdef CONFIG_TRACY
+$(SUBDIR)%_tablegen$(HOSTEXESUF): HOSTCFLAGS += -DTRACY_ENABLE
+endif
+
 ifdef CONFIG_SMALL
 $(SUBDIR)%_tablegen$(HOSTEXESUF): HOSTCFLAGS += -DCONFIG_SMALL=1
 else
