@@ -27,6 +27,28 @@
 #include "ffjni.h"
 #include "mediacodec_surface.h"
 
+static int is_surface_valid(JNIEnv *env, void *surface, void *log_ctx)
+{   
+    if (!env)
+        return 0;
+    jclass surface_class = (*env)->FindClass(env, "android/view/Surface");
+    if (!surface_class) {
+        ff_jni_exception_check(env, 1, log_ctx);
+        av_log(log_ctx, AV_LOG_WARNING, "Could not find android/view/Surface class\n");
+        return 1; /* assume valid if we cannot check */
+    }
+    jmethodID is_valid_id = (*env)->GetMethodID(env, surface_class, "isValid", "()Z");
+    if (!is_valid_id) {
+        (*env)->DeleteLocalRef(env, surface_class);
+        av_log(log_ctx, AV_LOG_WARNING, "Could not find Surface.isValid() method\n");
+        return 1; /* assume valid if we cannot check */
+    }
+    jboolean valid = (*env)->CallBooleanMethod(env, (jobject)surface, is_valid_id);
+    (*env)->DeleteLocalRef(env, surface_class);
+    ff_jni_exception_check(env, 1, log_ctx);
+    return valid;
+}
+
 FFANativeWindow *ff_mediacodec_surface_ref(void *surface, void *native_window, void *log_ctx)
 {
     FFANativeWindow *ret;
@@ -39,8 +61,15 @@ FFANativeWindow *ff_mediacodec_surface_ref(void *surface, void *native_window, v
         JNIEnv *env = NULL;
 
         env = ff_jni_get_env(log_ctx);
-        if (env)
+        if (env) {
+            if (!is_surface_valid(env, surface, log_ctx)) {
+                av_log(log_ctx, AV_LOG_ERROR,
+                       "Surface %p is not valid (native peer released?)\n", surface);
+                av_freep(&ret);
+                return NULL;
+            }
             ret->surface = (*env)->NewGlobalRef(env, surface);
+        }
     }
 
     if (native_window) {

@@ -1638,6 +1638,26 @@ static int mediacodec_jni_configure(FFAMediaCodec *ctx,
 
     JNI_GET_ENV_OR_RETURN(env, codec, AVERROR_EXTERNAL);
 
+    /* Validate the Surface before passing to MediaCodec.configure(),
+     * which will crash if the Surface's native peer has been released */
+    if (surface) {
+        jclass surface_class = (*env)->FindClass(env, "android/view/Surface");
+        if (surface_class) {
+            jmethodID is_valid_id = (*env)->GetMethodID(env, surface_class, "isValid", "()Z");
+            if (is_valid_id) {
+                jboolean valid = (*env)->CallBooleanMethod(env, (jobject)surface, is_valid_id);
+                if (!valid) {
+                    av_log(ctx, AV_LOG_ERROR, "Surface is not valid, cannot configure codec\n");
+                    (*env)->DeleteLocalRef(env, surface_class);
+                    ff_jni_exception_check(env, 0, 0);
+                    return AVERROR_EXTERNAL;
+                }
+            }
+            (*env)->DeleteLocalRef(env, surface_class);
+        }
+        ff_jni_exception_check(env, 0, 0);
+    }
+
     if (flags & codec->CONFIGURE_FLAG_ENCODE) {
         if (surface && !codec->jfields.set_input_surface_id) {
             av_log(ctx, AV_LOG_ERROR, "System doesn't support setInputSurface\n");
@@ -2390,6 +2410,23 @@ static int mediacodec_ndk_configure(FFAMediaCodec* ctx,
         if (window->surface) {
             JNIEnv *env = NULL;
             JNI_GET_ENV_OR_RETURN(env, ctx, -1);
+            /* Validate the Surface before calling ANativeWindow_fromSurface,
+             * which will crash if the Surface's native peer has been released */
+            jclass surface_class = (*env)->FindClass(env, "android/view/Surface");
+            if (surface_class) {
+                jmethodID is_valid_id = (*env)->GetMethodID(env, surface_class, "isValid", "()Z");
+                if (is_valid_id) {
+                    jboolean valid = (*env)->CallBooleanMethod(env, window->surface, is_valid_id);
+                    if (!valid) {
+                        av_log(ctx, AV_LOG_ERROR, "Surface is not valid, cannot configure codec\n");
+                        (*env)->DeleteLocalRef(env, surface_class);
+                        ff_jni_exception_check(env, 0, 0);
+                        return AVERROR_EXTERNAL;
+                    }
+                }
+                (*env)->DeleteLocalRef(env, surface_class);
+            }
+            ff_jni_exception_check(env, 0, 0);
             native_window = ANativeWindow_fromSurface(env, window->surface);
             // Save for release
             codec->window = native_window;
